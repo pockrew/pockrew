@@ -1,13 +1,6 @@
 {
   "permissions": {
-    "allow": [
-      "Edit(src/**)",
-      "Write(src/**)",
-      "Edit(tests/**)",
-      "Write(tests/**)",
-      "Edit(docs/**)",
-      "Write(docs/**)"
-    ],
+    "allow": ["Edit(src/**)", "Write(src/**)", "Edit(tests/**)", "Write(tests/**)", "Edit(docs/**)", "Write(docs/**)"],
     "ask": ["Edit(src/contracts/**)", "Write(src/contracts/**)"],
     "deny": ["Bash(git push:*)", "Bash(git merge:*)"]
   },
