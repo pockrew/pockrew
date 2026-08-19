@@ -1,0 +1,122 @@
+/*
+ * Design tokens for the Pockrew world UI.
+ *
+ * Everything visual that carries meaning is declared here so the renderer never hardcodes a
+ * colour or a duration. Two accessibility rules depend on that: reduced motion with 40x40
+ * minimum targets at 125-200% zoom, and status never signalled by colour alone.
+ * Component styles belong in *.module.css next to the component.
+ */
+
+:root {
+  color-scheme: light dark;
+
+  /* Surfaces and text */
+  --surface: #f7f7f5;
+  --surface-raised: #ffffff;
+  --surface-sunken: #ebebe7;
+  --border: #d6d6d0;
+  --ink: #1b1b19;
+  --ink-muted: #5f5f59;
+
+  /* Actor states, in precedence order */
+  --state-waiting-user: #d97706;
+  --state-blocked: #dc2626;
+  --state-working: #2563eb;
+  --state-thinking: #7c3aed;
+  --state-completed: #059669;
+  --state-starting: #0891b2;
+  --state-idle: #78716c;
+  --state-ended: #a8a29e;
+  --state-unknown: #9ca3af;
+
+  /* Stations, one per activity category */
+  --station-library: #6366f1;
+  --station-workshop: #ea580c;
+  --station-lab: #0d9488;
+  --station-review: #8b5cf6;
+  --station-hq: #2563eb;
+  --station-boss-desk: #d97706;
+  --station-lounge: #78716c;
+
+  /* Confidence. Shown in inspector and shift report, not in the world view. */
+  --confidence-verified: var(--state-completed);
+  --confidence-observed: var(--ink-muted);
+  --confidence-inferred: #a8a29e;
+
+  /* Spacing and shape */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 16px;
+
+  /* Minimum interactive target */
+  --target-min: 40px;
+
+  /* Motion. Reduced-motion collapses these to 0ms; nothing else needs to know. */
+  --dur-instant: 90ms;
+  --dur-fast: 160ms;
+  --dur-move: 320ms;
+  --dur-spawn: 480ms;
+  --dur-celebrate: 8s; /* completed celebration */
+  --ease-move: cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --surface: #16161a;
+    --surface-raised: #1f1f24;
+    --surface-sunken: #101013;
+    --border: #33333b;
+    --ink: #f2f2f0;
+    --ink-muted: #a3a3a0;
+  }
+}
+
+/*
+ * Reduced motion is a fallback, not an absence: movement becomes a short fade or a teleport
+ * that keeps context. Callers get that for free by animating on --dur-* instead of a literal.
+ */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --dur-instant: 0ms;
+    --dur-fast: 0ms;
+    --dur-move: 0ms;
+    --dur-spawn: 0ms;
+  }
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--surface);
+  color: var(--ink);
+  font:
+    16px/1.5 system-ui,
+    -apple-system,
+    "Segoe UI",
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Keyboard focus must survive every component style */
+:focus-visible {
+  outline: 2px solid var(--state-working);
+  outline-offset: 2px;
+}
+
+button,
+[role="button"],
+a[href] {
+  min-height: var(--target-min);
+  min-width: var(--target-min);
+}

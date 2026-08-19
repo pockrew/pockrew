@@ -1,0 +1,28 @@
+{
+  "semi": true,
+  "singleQuote": false,
+  "trailingComma": "all",
+  "printWidth": 120,
+  "tabWidth": 2,
+  "plugins": ["@ianvs/prettier-plugin-sort-imports"],
+  "importOrderParserPlugins": ["typescript", "jsx"],
+  "importOrderTypeScriptVersion": "6.0.0",
+  "importOrderCaseSensitive": false,
+  "importOrderSafeSideEffects": ["[.]css$"],
+  "importOrder": [
+    "^(server-only|client-only)$",
+    "",
+    "<BUILTIN_MODULES>",
+    "",
+    "^(react|react-dom|hono)(/.*)?$",
+    "^@hono/",
+    "",
+    "<THIRD_PARTY_MODULES>",
+    "",
+    "^#(contracts|core|adapters|server)/",
+    "",
+    "^(?!.*[.]css$)[./].*$",
+    "",
+    "[.]css$"
+  ]
+}

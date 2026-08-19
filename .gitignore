@@ -1,0 +1,11 @@
+node_modules/
+dist/
+*.log
+.env
+.DS_Store
+.playwright-mcp
+coverage/
+*.tsbuildinfo
+.claude/settings.local.json
+tests/fixtures/raw/
+docs/.internal

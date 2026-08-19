@@ -1,0 +1,79 @@
+{
+  "name": "pockrew",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Your AI agent crew, in your pocket — local-first supervisor for Claude Code & Codex",
+  "keywords": [
+    "ai-agents",
+    "claude-code",
+    "codex",
+    "local-first",
+    "observability",
+    "supervisor"
+  ],
+  "homepage": "https://github.com/pockrew/pockrew#readme",
+  "bugs": {
+    "url": "https://github.com/pockrew/pockrew/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/pockrew/pockrew.git"
+  },
+  "license": "SEE LICENSE IN LICENSE.md",
+  "author": "Đàm Hưng Thịnh",
+  "type": "module",
+  "imports": {
+    "#contracts/*.js": {
+      "development": "./src/contracts/*.ts",
+      "default": "./dist/contracts/*.js"
+    },
+    "#core/*.js": {
+      "development": "./src/core/*.ts",
+      "default": "./dist/core/*.js"
+    },
+    "#adapters/*.js": {
+      "development": "./src/adapters/*.ts",
+      "default": "./dist/adapters/*.js"
+    },
+    "#server/*.js": {
+      "development": "./src/server/*.ts",
+      "default": "./dist/server/*.js"
+    }
+  },
+  "scripts": {
+    "dev": "concurrently -n srv,web \"tsx watch --conditions=development src/server/cli.ts --dev\" \"vite --config src/web/vite.config.ts\"",
+    "build": "tsc -p tsconfig.build.json && vite build --config src/web/vite.config.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "check": "tsc --noEmit && tsc -p src/web/tsconfig.json --noEmit && oxlint src tools && depcruise src && node tools/guards.mjs && prettier --check .",
+    "capture": "tsx tools/capture/serve.ts"
+  },
+  "dependencies": {
+    "@hono/node-server": "^2.1.1",
+    "chokidar": "^5.0.0",
+    "hono": "^4.13.2"
+  },
+  "devDependencies": {
+    "@ianvs/prettier-plugin-sort-imports": "^4.7.1",
+    "@types/node": "^24.13.3",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
+    "@vitejs/plugin-react": "^6.0.5",
+    "concurrently": "^10.0.5",
+    "dependency-cruiser": "^18.2.0",
+    "oxlint": "^1.78.0",
+    "prettier": "^3.9.6",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "tsx": "^4.23.12",
+    "typescript": "6.0.3",
+    "vite": "^8.2.1",
+    "vitest": "^4.1.10",
+    "zustand": "^5.0.15"
+  },
+  "engines": {
+    "node": "^24.18.0",
+    "pnpm": "^11.22.0"
+  },
+  "packageManager": "pnpm@11.22.0"
+}

@@ -1,0 +1,30 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+
+      # packageManager in package.json pins the pnpm version, so corepack is the whole setup.
+      # It has to run after setup-node so the shims land on the Node version we actually use.
+      - run: corepack enable
+
+      - run: pnpm install --frozen-lockfile
+
+      # The import boundaries and pure-zone guards live in here. The pre-commit hook is opt-in
+      # per clone, so this job is the only enforcement that always runs.
+      - run: pnpm check
+
+      - run: pnpm test
+
+      - run: pnpm build

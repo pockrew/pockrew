@@ -1,0 +1,4 @@
+#!/bin/sh
+# Enable with: git config core.hooksPath .githooks
+# The import boundaries are only real if they run before a commit.
+exec pnpm check
