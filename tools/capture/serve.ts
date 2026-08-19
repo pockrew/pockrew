@@ -17,5 +17,7 @@ app.post("/event", async (c) => {
   );
   return c.json({ ok: true });
 });
-serve({ fetch: app.fetch, port: 7777 });
-console.log("capture listening on :7777 → tests/fixtures/raw/hooks.jsonl");
+// 7777 is a suggestion only — override with CAPTURE_PORT (rules/server.md)
+const port = Number(process.env["CAPTURE_PORT"] ?? 7777);
+serve({ fetch: app.fetch, port });
+console.log(`capture listening on :${port} → tests/fixtures/raw/hooks.jsonl`);

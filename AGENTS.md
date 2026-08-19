@@ -73,7 +73,19 @@ package version published less than 24 hours ago: pnpm quarantines them, and for
 writes a `minimumReleaseAgeExclude` list into `pnpm-workspace.yaml`. Seeing that list appear means
 something bypassed the gate.
 
-## 10. Commits
+## 10. Code style — scoped rule files
+
+Style rules live in `.claude/rules/`, scoped by glob. **Load the rule file whose globs match the
+files you are touching; do not apply a rule outside its scope** (e.g. React rules never apply to
+`src/core`). Claude Code loads them by glob automatically; other tools read them as role prompts.
+
+| Rule file                     | Scope                                | Covers                                                                                                                           |
+| ----------------------------- | ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------- |
+| `.claude/rules/typescript.md` | all `.ts`/`.tsx`                     | kebab-case files, arrow functions, no re-defined types, SOLID/KISS, scripts                                                      |
+| `.claude/rules/react.md`      | `src/web/**`                         | atomic design, `FC<Props>`, `handleXxx`/`onXxx`, useEffect placement, Zustand/immer/Context, `@/` alias, mobile-first, Hugeicons |
+| `.claude/rules/server.md`     | `src/server/**`, `src/core/store/**` | Hono REST/MVC handler split, SQLite no-N+1, security invariants                                                                  |
+
+## 11. Commits
 
 Small, message in English, prefixed by zone: `core:`, `adapter/claude:`, `web:`, `server:`,
 `chore:`.

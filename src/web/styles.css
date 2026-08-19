@@ -87,6 +87,7 @@
     --dur-fast: 0ms;
     --dur-move: 0ms;
     --dur-spawn: 0ms;
+    --dur-celebrate: 0ms;
   }
 }
 
@@ -119,4 +120,34 @@ button,
 a[href] {
   min-height: var(--target-min);
   min-width: var(--target-min);
+}
+
+/* App shell: world canvas plus the attention drawer on the right */
+.app {
+  display: flex;
+  align-items: stretch;
+  min-height: 100vh;
+}
+
+.app-main {
+  flex: 1;
+  overflow-x: auto;
+}
+
+.app-connecting {
+  padding: var(--space-4);
+  color: var(--ink-muted);
+}
+
+/* Screen-reader-only content; the world canvas mirrors into one of these */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
 }

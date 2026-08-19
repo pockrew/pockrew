@@ -10,6 +10,7 @@
     "noFallthroughCasesInSwitch": true,
     "verbatimModuleSyntax": true,
     "skipLibCheck": true,
+    "types": ["node"],
     "customConditions": ["development"],
     "outDir": "dist",
     "rootDir": "src"

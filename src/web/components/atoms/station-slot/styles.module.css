@@ -1,0 +1,43 @@
+.station {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 192px;
+  height: 128px;
+  border: 1px dashed var(--border);
+  border-top: 3px solid var(--station-color, var(--border));
+  border-radius: var(--radius-md);
+  background: var(--surface-sunken);
+}
+
+.station[data-station="library"] {
+  --station-color: var(--station-library);
+}
+.station[data-station="workshop"] {
+  --station-color: var(--station-workshop);
+}
+.station[data-station="lab"] {
+  --station-color: var(--station-lab);
+}
+.station[data-station="review"] {
+  --station-color: var(--station-review);
+}
+.station[data-station="hq"] {
+  --station-color: var(--station-hq);
+}
+.station[data-station="boss_desk"] {
+  --station-color: var(--station-boss-desk);
+}
+.station[data-station="lounge"] {
+  --station-color: var(--station-lounge);
+}
+
+.stationLabel {
+  display: inline-block;
+  padding: var(--space-1) var(--space-2);
+  color: var(--ink-muted);
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}

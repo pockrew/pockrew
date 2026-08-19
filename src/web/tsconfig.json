@@ -10,7 +10,8 @@
     "noUncheckedIndexedAccess": true,
     "noEmit": true,
     "skipLibCheck": true,
-    "customConditions": ["development"]
+    "customConditions": ["development"],
+    "paths": { "@/*": ["./*"] }
   },
   "include": ["**/*", "../contracts/**/*"]
 }

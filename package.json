@@ -41,12 +41,15 @@
     }
   },
   "scripts": {
-    "dev": "concurrently -n srv,web \"tsx watch --conditions=development src/server/cli.ts --dev\" \"vite --config src/web/vite.config.ts\"",
+    "dev": "concurrently -n srv,web \"tsx watch --conditions=development src/server/cli.ts start\" \"vite --config src/web/vite.config.ts\"",
     "build": "tsc -p tsconfig.build.json && vite build --config src/web/vite.config.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "check": "tsc --noEmit && tsc -p src/web/tsconfig.json --noEmit && oxlint src tools && depcruise src && node tools/guards.mjs && prettier --check .",
-    "capture": "tsx tools/capture/serve.ts"
+    "capture": "tsx tools/capture/serve.ts",
+    "pockrew": "tsx --conditions=development src/server/cli.ts",
+    "dev:web": "vite --config src/web/vite.config.ts",
+    "format": "prettier --write ."
   },
   "dependencies": {
     "@hono/node-server": "^2.1.1",

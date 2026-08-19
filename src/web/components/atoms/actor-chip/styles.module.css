@@ -1,0 +1,76 @@
+.chip {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-2);
+  min-height: 30px;
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--chip-color, var(--border));
+  border-radius: var(--radius-sm);
+  font-size: 0.8rem;
+  white-space: nowrap;
+  transition: transform var(--dur-move) var(--ease-move);
+}
+
+.chip[data-state="starting"] {
+  --chip-color: var(--state-starting);
+}
+.chip[data-state="thinking"] {
+  --chip-color: var(--state-thinking);
+}
+.chip[data-state="working"] {
+  --chip-color: var(--state-working);
+}
+.chip[data-state="waiting_user"] {
+  --chip-color: var(--state-waiting-user);
+}
+.chip[data-state="blocked"] {
+  --chip-color: var(--state-blocked);
+}
+.chip[data-state="completed"] {
+  --chip-color: var(--state-completed);
+  animation: celebrate var(--dur-celebrate) ease-out;
+}
+.chip[data-state="idle"] {
+  --chip-color: var(--state-idle);
+}
+.chip[data-state="ended"] {
+  --chip-color: var(--state-ended);
+}
+.chip[data-state="unknown"] {
+  --chip-color: var(--state-unknown);
+}
+
+@keyframes celebrate {
+  0% {
+    box-shadow: 0 0 0 0 var(--state-completed);
+  }
+  15% {
+    box-shadow: 0 0 0 8px transparent;
+  }
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+
+.name {
+  font-weight: 600;
+}
+
+.stateLabel {
+  color: var(--chip-color, var(--ink-muted));
+  font-weight: 600;
+}
+
+.subagent {
+  font-size: 0.7rem;
+  min-height: 24px;
+}
+
+.parentLink {
+  color: var(--ink-muted);
+}
