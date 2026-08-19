@@ -1,5 +1,6 @@
 // ❄️ FROZEN — repo owner must approve changes. Stop and propose a diff instead of editing.
-// RawSourceEvent is not yet confirmed against real captured payloads.
+// Confirmed against real captured payloads 2026-08-19 (Claude Code 2.1.235, Codex 0.148.0-alpha.15).
+// Evidence and mapping: docs/.internal/data-notes.md; fixtures: tests/fixtures/claude, tests/fixtures/codex.
 
 /** Raw payload as an adapter read it. Redact, sanitize and dedupe are core's job, not the adapter's. */
 export type RawSourceEvent = {
@@ -24,6 +25,8 @@ export type AgentEvent = {
   source: "claude" | "codex";
   sourceVersion?: string;
   confidence: "verified" | "observed" | "inferred";
+  /** Verbatim permission_mode from the provider payload; absent when the provider sent none. */
+  permissionMode?: string;
 
   projectId: string;
   sessionId: string;
@@ -54,6 +57,8 @@ export type AgentEvent = {
     tool?: string;
     operation?: string;
     exitCode?: number;
+    /** Who allowed this call to run. "human" requires a real approval signal (PermissionRequest matched). */
+    approvedBy?: "human" | "auto" | "policy" | "unknown";
   };
 
   attention?: {
