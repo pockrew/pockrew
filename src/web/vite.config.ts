@@ -14,8 +14,9 @@ export default defineConfig({
   build: { outDir: "../../dist/web", emptyOutDir: true },
   server: {
     // /api covers the SSE stream too; it is plain HTTP, so no websocket proxy is needed.
-    // Target port is a suggestion only — override with POCKREW_API_PORT (rules/server.md);
-    // M3 may switch this to reading ~/.pockrew/server.json instead.
-    proxy: { "/api": `http://localhost:${process.env.POCKREW_API_PORT ?? 4242}` },
+    // The daemon auto-picks a free port and writes it to ~/.pockrew/server.json unless
+    // POCKREW_PORT pins one (src/server/registry.ts) — 7799 here is only a dev-time default,
+    // never a hard bind (rules/server.md). Bind 127.0.0.1 to match the daemon's own bind.
+    proxy: { "/api": `http://127.0.0.1:${process.env.POCKREW_PORT ?? "7799"}` },
   },
 });

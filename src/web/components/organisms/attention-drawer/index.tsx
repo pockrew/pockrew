@@ -31,15 +31,16 @@ export const AttentionDrawer: FC<Props> = ({ items, actors }) => {
   return (
     <aside className={styles.drawer} aria-label="Attention queue">
       <h2 className={styles.title}>Needs you</h2>
-      {open.length === 0 ? (
-        <p className={styles.empty}>Nothing needs you right now.</p>
-      ) : (
-        <ol className={styles.list} aria-live="polite">
-          {open.map((item) => (
-            <AttentionItemCard key={item.id} item={item} actorNames={names} />
-          ))}
-        </ol>
-      )}
+      {/* Mounted with the first world snapshot (never conditionally added later), so the live
+          region already exists for any attention that arrives after that (docs/spec.md "new
+          attention uses a polite live region"). */}
+      <ol className={styles.list} aria-live="polite">
+        {open.length === 0 ? (
+          <li className={styles.empty}>Nothing needs you right now.</li>
+        ) : (
+          open.map((item) => <AttentionItemCard key={item.id} item={item} actorNames={names} />)
+        )}
+      </ol>
     </aside>
   );
 };

@@ -2,8 +2,9 @@
   position: absolute;
   left: 0;
   top: 0;
-  width: 192px;
-  height: 128px;
+  /* Size comes from STATION_SIZE via inline custom properties — one source of truth. */
+  width: var(--station-w);
+  height: var(--station-h);
   border: 1px dashed var(--border);
   border-top: 3px solid var(--station-color, var(--border));
   border-radius: var(--radius-md);

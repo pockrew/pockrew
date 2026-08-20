@@ -6,14 +6,30 @@
   align-items: center;
   gap: var(--space-1);
   padding: var(--space-1) var(--space-2);
-  min-height: 30px;
   background: var(--surface-raised);
+  color: var(--ink);
   border: 1px solid var(--border);
   border-left: 4px solid var(--chip-color, var(--border));
   border-radius: var(--radius-sm);
+  font: inherit;
   font-size: 0.8rem;
   white-space: nowrap;
+  text-align: left;
+  cursor: pointer;
+  transform: translate(var(--chip-x), var(--chip-y));
   transition: transform var(--dur-move) var(--ease-move);
+}
+
+/* A subagent enters by growing out of its parent chip; the offset comes from the layout. */
+.subagent {
+  animation: spawn var(--dur-spawn) var(--ease-move);
+}
+
+@keyframes spawn {
+  from {
+    transform: translate(calc(var(--chip-x) + var(--spawn-dx)), calc(var(--chip-y) + var(--spawn-dy))) scale(0.5);
+    opacity: 0;
+  }
 }
 
 .chip[data-state="starting"] {
@@ -38,8 +54,16 @@
 .chip[data-state="idle"] {
   --chip-color: var(--state-idle);
 }
+/* Leaving the world: fade once, then stay dimmed until the actor drops out of the snapshot. */
 .chip[data-state="ended"] {
   --chip-color: var(--state-ended);
+  animation: leave var(--dur-move) var(--ease-move) forwards;
+}
+
+@keyframes leave {
+  to {
+    opacity: 0.45;
+  }
 }
 .chip[data-state="unknown"] {
   --chip-color: var(--state-unknown);
@@ -57,6 +81,13 @@
   }
 }
 
+.avatar {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  display: block;
+}
+
 .name {
   font-weight: 600;
 }
@@ -66,11 +97,26 @@
   font-weight: 600;
 }
 
+.body {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
 .subagent {
-  font-size: 0.7rem;
-  min-height: 24px;
+  font-size: 0.72rem;
+}
+
+.subagent .avatar {
+  width: 16px;
+  height: 16px;
 }
 
 .parentLink {
   color: var(--ink-muted);
+}
+
+/* Selected in the inspector: the chip keeps its state colour and gains a ring. */
+.chip[aria-pressed="true"] {
+  box-shadow: 0 0 0 2px var(--chip-color, var(--border));
 }

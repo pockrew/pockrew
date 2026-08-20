@@ -1,6 +1,39 @@
+/* Positioning context for the docked inspector on wide screens. */
 .world {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-4);
-  padding: var(--space-4);
+  position: relative;
+}
+
+/*
+ * The camera. `touch-action: none` hands the whole gesture to the map, so dragging the world on a
+ * phone never fights the page scroll; `overscroll-behavior` stops a fast trackpad pan from
+ * bleeding into the document.
+ */
+.viewport {
+  position: relative;
+  overflow: hidden;
+  height: 62vh;
+  min-height: 320px;
+  background: var(--surface-sunken);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  touch-action: none;
+  overscroll-behavior: contain;
+  cursor: grab;
+}
+
+.viewport:active {
+  cursor: grabbing;
+}
+
+@media (min-width: 60rem) {
+  .viewport {
+    height: 78vh;
+  }
+}
+
+/* The plane is larger than the camera on purpose: travel is the point. */
+.plane {
+  position: relative;
+  transform-origin: 0 0;
+  transition: transform var(--dur-move) var(--ease-move);
 }

@@ -226,6 +226,18 @@ export const mockWorld: WorldState = {
       fileCount: 4,
       reviewed: false,
     },
+    {
+      id: "rec-subagent",
+      projectId: "proj-pockrew",
+      actorId: "actor-sage",
+      kind: "subagent_returned",
+      title: "Scout returned from edit pass",
+      confidence: "inferred",
+      occurredAt: NOW - 40 * MIN,
+      summary: "No native completion event; derived from turn stop and file evidence",
+      fileCount: 1,
+      reviewed: false,
+    },
   ],
   milestones: [
     {

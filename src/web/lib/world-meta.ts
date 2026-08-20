@@ -1,5 +1,37 @@
+import {
+  AlertCircleIcon,
+  AlertDiamondIcon,
+  BrainIcon,
+  CheckmarkBadge01Icon,
+  CircleQuestionMarkIcon,
+  Coffee01Icon,
+  DoorClosedIcon,
+  EyeIcon,
+  Fire02Icon,
+  HammerIcon,
+  HandIcon,
+  HourglassIcon,
+  Key01Icon,
+  Loading03Icon,
+  MessageQuestionIcon,
+  PackageDelivered01Icon,
+  PartyIcon,
+  QuestionIcon,
+  RefreshIcon,
+  Rocket01Icon,
+  Satellite01Icon,
+  ShieldBanIcon,
+  WifiConnected01Icon,
+} from "@hugeicons/core-free-icons";
+import type { IconSvgElement } from "@hugeicons/react";
+
 import type { AttentionType } from "#contracts/attention.js";
+import type { Confidence, SourceId } from "#contracts/events.js";
+import type { ReceiptKind } from "#contracts/receipts.js";
 import type { ActorState, Station } from "#contracts/world.js";
+
+/** One station plot. The single source of truth for the size: CSS reads it back as a variable. */
+export const STATION_SIZE = { width: 192, height: 128 };
 
 /** Fixed stage coordinates per station; actors translate to these. */
 export const STATIONS: Array<{ id: Station; label: string; x: number; y: number }> = [
@@ -15,24 +47,65 @@ export const STATIONS: Array<{ id: Station; label: string; x: number; y: number 
 export const STATION_POS = new Map(STATIONS.map((s) => [s.id, s]));
 
 /** State is always icon + label + colour, never colour alone. */
-export const STATE_META: Record<ActorState, { icon: string; label: string }> = {
-  starting: { icon: "✦", label: "starting" },
-  thinking: { icon: "💭", label: "thinking" },
-  working: { icon: "🔨", label: "working" },
-  waiting_user: { icon: "✋", label: "needs you" },
-  blocked: { icon: "🔥", label: "blocked" },
-  completed: { icon: "🎉", label: "completed" },
-  idle: { icon: "☕", label: "idle" },
-  ended: { icon: "🚪", label: "ended" },
-  unknown: { icon: "❓", label: "unknown" },
+export const STATE_META: Record<ActorState, { icon: IconSvgElement; label: string }> = {
+  starting: { icon: Rocket01Icon, label: "starting" },
+  thinking: { icon: BrainIcon, label: "thinking" },
+  working: { icon: HammerIcon, label: "working" },
+  waiting_user: { icon: HandIcon, label: "needs you" },
+  blocked: { icon: Fire02Icon, label: "blocked" },
+  completed: { icon: PartyIcon, label: "completed" },
+  idle: { icon: Coffee01Icon, label: "idle" },
+  ended: { icon: DoorClosedIcon, label: "ended" },
+  unknown: { icon: QuestionIcon, label: "unknown" },
 };
 
-export const ATTENTION_META: Record<AttentionType, { icon: string; label: string }> = {
-  approval: { icon: "✋", label: "approval" },
-  question: { icon: "❓", label: "question" },
-  error: { icon: "🔥", label: "error" },
-  stalled: { icon: "⏳", label: "stalled" },
-  conflict: { icon: "⚠️", label: "conflict" },
-  ready_review: { icon: "📦", label: "ready for review" },
-  coverage_gap: { icon: "📡", label: "coverage gap" },
+export const ATTENTION_META: Record<AttentionType, { icon: IconSvgElement; label: string }> = {
+  approval: { icon: HandIcon, label: "approval" },
+  question: { icon: MessageQuestionIcon, label: "question" },
+  error: { icon: AlertCircleIcon, label: "error" },
+  stalled: { icon: HourglassIcon, label: "stalled" },
+  conflict: { icon: AlertDiamondIcon, label: "conflict" },
+  ready_review: { icon: PackageDelivered01Icon, label: "ready for review" },
+  coverage_gap: { icon: Satellite01Icon, label: "coverage gap" },
+};
+
+/** Confidence is always icon + label + colour, never colour alone (docs/spec.md "Confidence"). */
+export const CONFIDENCE_META: Record<Confidence, { icon: IconSvgElement; label: string }> = {
+  verified: { icon: CheckmarkBadge01Icon, label: "verified" },
+  observed: { icon: EyeIcon, label: "observed" },
+  inferred: { icon: CircleQuestionMarkIcon, label: "inferred" },
+};
+
+/** Human label per receipt kind, for the warehouse delivery list. */
+export const RECEIPT_KIND_LABEL: Record<ReceiptKind, string> = {
+  task_completed: "Task completed",
+  subagent_returned: "Subagent returned",
+  turn_completed: "Turn completed",
+  test_passed: "Test passed",
+  test_failed: "Test failed",
+  build_passed: "Build passed",
+  build_failed: "Build failed",
+  commit_created: "Commit created",
+  failure_recovered: "Failure recovered",
+  review_ready: "Review ready",
+};
+
+/** SSE connection lifecycle, surfaced next to the world so a stale view is never mistaken for live. */
+export type ConnectionStatus = "connecting" | "live" | "reconnecting" | "no-token" | "unauthorized";
+
+export const CONNECTION_META: Record<ConnectionStatus, { icon: IconSvgElement; label: string }> = {
+  connecting: { icon: Loading03Icon, label: "connecting…" },
+  live: { icon: WifiConnected01Icon, label: "live" },
+  reconnecting: { icon: RefreshIcon, label: "reconnecting…" },
+  "no-token": { icon: Key01Icon, label: "no stream token" },
+  unauthorized: { icon: ShieldBanIcon, label: "token rejected" },
+};
+
+/** Character sprite mapping per agent source. Adding a source to the contract
+ *  forces a sprite entry here via the Record key. */
+export type ActorSpriteId = "sprite-claude" | "sprite-codex";
+
+export const ACTOR_SPRITE_BY_SOURCE: Record<SourceId, ActorSpriteId> = {
+  claude: "sprite-claude",
+  codex: "sprite-codex",
 };

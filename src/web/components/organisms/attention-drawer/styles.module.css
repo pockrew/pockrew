@@ -1,10 +1,18 @@
 .drawer {
-  width: 320px;
-  flex-shrink: 0;
-  min-height: 100vh;
+  width: 100%;
   padding: var(--space-4);
   background: var(--surface-raised);
-  border-left: 1px solid var(--border);
+  border-top: 1px solid var(--border);
+}
+
+@media (min-width: 60rem) {
+  .drawer {
+    width: 320px;
+    flex-shrink: 0;
+    min-height: 100vh;
+    border-top: 0;
+    border-left: 1px solid var(--border);
+  }
 }
 
 .title {

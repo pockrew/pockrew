@@ -122,16 +122,28 @@ a[href] {
   min-width: var(--target-min);
 }
 
-/* App shell: world canvas plus the attention drawer on the right */
+/* App shell: mobile stacks the map over the drawer; wide screens put the drawer on the right. */
 .app {
   display: flex;
-  align-items: stretch;
+  flex-direction: column;
   min-height: 100vh;
 }
 
+/* The map is a camera onto a bigger plane, so the shell never scrolls sideways to reach a base. */
 .app-main {
   flex: 1;
-  overflow-x: auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-2);
+}
+
+@media (min-width: 60rem) {
+  .app {
+    flex-direction: row;
+    align-items: stretch;
+  }
 }
 
 .app-connecting {
