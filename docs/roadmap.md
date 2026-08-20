@@ -17,9 +17,9 @@ approval flow. Every pipeline feature from here is built and tested against that
 | Milestone                | What you get                                                                             | Status  |
 | ------------------------ | ---------------------------------------------------------------------------------------- | ------- |
 | M0 — Evidence            | Real captured fixtures, verified hook coverage, frozen contracts, renderer decision      | ✅ done |
-| M1 — Ingestion + setup   | Local daemon, one-command `setup` / `doctor` / `uninstall` that never breaks your config | next    |
-| M2 — Persistence + trust | SQLite store, actor state machine, Work Receipts with honest confidence levels           |         |
-| M3 — Company world       | The visual world: districts, characters, semantic stations, live activity                |         |
+| M1 — Ingestion + setup   | Local daemon, one-command `setup` / `doctor` / `uninstall` that never breaks your config | ✅ done |
+| M2 — Persistence + trust | SQLite store, actor state machine, Work Receipts with honest confidence levels           | ✅ done |
+| M3 — Company world       | The visual world: districts, characters, semantic stations, live activity                | next    |
 | M4 — Needs You           | Unified attention queue: approvals, questions, errors — one item, one notification       |         |
 | M5 — Shift Report        | "Since you left": shipped vs observed, conflicts, deterministic next actions             |         |
 | M6 — Hardening           | Onboarding, security pass, LAN mobile companion, external testing, 8-hour soak           |         |

@@ -39,7 +39,9 @@ States, in precedence order — the higher one wins when signals conflict:
 
 `waiting_user` > `blocked` > `working` > `thinking` > `completed` > `idle` > `ended` > `unknown`
 
-`starting` is the entry state on session discovery.
+`starting` is the entry state on session discovery. `ended` is terminal: `idle` and `starting`
+describe live sessions only, so an ended session never decays to `idle` — only unresolved
+attention, blocked state, or still-open work outranks `ended`.
 
 Default timers, configurable per adapter capability — never one heuristic for every provider:
 

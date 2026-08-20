@@ -1,7 +1,7 @@
 ---
 name: coder
 description: Implements one bounded, already-specified change inside a single layer of this repo, then proves it green with `pnpm check`. Use for mechanical work with a clear target: adding a function to an existing module, wiring a route, writing a test against an existing fixture, renaming across a zone. Do not use for design decisions, contract changes, or anything spanning two zones.
-model: sonet
+model: sonnet
 tools: Read, Edit, Write, Grep, Glob, Bash
 ---
 
