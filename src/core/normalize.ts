@@ -24,6 +24,8 @@ type ClaudePayload = {
   tool_name?: string;
   tool_input?: Record<string, unknown>;
   tool_use_id?: string;
+  /** Only field we trust off tool_response: whether the call actually ran to completion. */
+  tool_response?: { interrupted?: boolean };
   agent_id?: string;
   agent_type?: string;
   error?: string;
@@ -56,6 +58,32 @@ const activityFor = (tool: string | undefined): Activity => {
   if (!tool) return { category: "terminal" };
   return { category: TOOL_CATEGORY[tool] ?? "terminal", tool };
 };
+
+const commandFor = (p: ClaudePayload): string | undefined => {
+  const command = (p.tool_input ?? {})["command"];
+  return typeof command === "string" ? command : undefined;
+};
+
+/** Parses the leading "Exit code N" that PostToolUseFailure prepends to `error`; absent when unparseable. */
+const exitCodeFromError = (error: string | undefined): number | undefined => {
+  const match = error?.match(/^Exit code (\d+)/);
+  return match ? Number(match[1]) : undefined;
+};
+
+/**
+ * PostToolUse fires whether the run finished or was cancelled — a user-interrupted Bash call
+ * carries no exit code, and inventing 0 would fake a pass. Only `interrupted === false` verifies
+ * completion; a missing or unreadable tool_response leaves exitCode absent (never assume success).
+ */
+const exitCodeFromResponse = (p: ClaudePayload): number | undefined => {
+  return p.tool_response?.interrupted === false ? 0 : undefined;
+};
+
+const bashActivity = (p: ClaudePayload, exitCode: number | undefined): Activity => ({
+  ...activityFor(p.tool_name),
+  ...opt("operation", truncateSummary(commandFor(p))),
+  ...opt("exitCode", exitCode),
+});
 
 const fileFor = (p: ClaudePayload): AgentEvent["file"] | undefined => {
   const input = p.tool_input ?? {};
@@ -123,10 +151,11 @@ const normalizeClaudeHook = (raw: RawSourceEvent): AgentEvent | null => {
       };
     case "PostToolUse": {
       const approvedBy = approvedByFor(p.permission_mode);
+      const activity = p.tool_name === "Bash" ? bashActivity(p, exitCodeFromResponse(p)) : activityFor(p.tool_name);
       return {
         ...base(raw, p, "activity_completed"),
         kind: "activity_completed",
-        activity: { ...activityFor(p.tool_name), ...opt("approvedBy", approvedBy) },
+        activity: { ...activity, ...opt("approvedBy", approvedBy) },
         ...opt("file", fileFor(p)),
       };
     }
@@ -134,7 +163,7 @@ const normalizeClaudeHook = (raw: RawSourceEvent): AgentEvent | null => {
       return {
         ...base(raw, p, "activity_failed"),
         kind: "activity_failed",
-        activity: activityFor(p.tool_name),
+        activity: p.tool_name === "Bash" ? bashActivity(p, exitCodeFromError(p.error)) : activityFor(p.tool_name),
         ...opt("summary", truncateSummary(p.error)),
       };
     case "SubagentStart":

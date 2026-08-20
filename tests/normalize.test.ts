@@ -87,6 +87,36 @@ describe("normalize: claude hook fixture replay", () => {
   });
 });
 
+describe("normalize: Bash exit code from PostToolUse", () => {
+  const bashPostToolUse = (toolResponse: unknown): AgentEvent | null =>
+    normalize(
+      fromHookPost(
+        {
+          hook_event_name: "PostToolUse",
+          session_id: "s1",
+          cwd: "/tmp/proj",
+          tool_name: "Bash",
+          tool_input: { command: "npm test" },
+          tool_response: toolResponse,
+        },
+        1,
+      ),
+    );
+
+  it("sets exitCode 0 only when tool_response.interrupted is explicitly false", () => {
+    expect(bashPostToolUse({ interrupted: false })?.activity?.exitCode).toBe(0);
+  });
+
+  it("never assumes success when the run was interrupted (user-cancelled)", () => {
+    expect(bashPostToolUse({ interrupted: true })?.activity?.exitCode).toBeUndefined();
+  });
+
+  it("leaves exitCode absent when tool_response is missing or unreadable", () => {
+    expect(bashPostToolUse(undefined)?.activity?.exitCode).toBeUndefined();
+    expect(bashPostToolUse("not an object")?.activity?.exitCode).toBeUndefined();
+  });
+});
+
 describe("normalize: codex rollout fixture replay", () => {
   const file = join(import.meta.dirname, "fixtures", "codex", "rollout-v0.148.jsonl");
   const lines = readFileSync(file, "utf8").trim().split("\n");
