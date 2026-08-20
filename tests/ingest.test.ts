@@ -11,7 +11,7 @@ import { deriveReceipts } from "#core/receipts/receipts.js";
 import { defaultTimers, reduceActors } from "#core/reduce/reduce.js";
 import { openStore } from "#core/store/store.js";
 import { checkDaemonCoverage, HEARTBEAT_KEY } from "#server/coverage.js";
-import { createApp, type ServerState } from "#server/http.js";
+import { createApp, webBuilt, type ServerState } from "#server/http.js";
 
 const dir = mkdtempSync(join(tmpdir(), "pockrew-ingest-"));
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
@@ -60,6 +60,42 @@ describe("ingest: security", () => {
       headers: { "x-pockrew-token": token, origin: "http://evil.example" },
     });
     expect(res.status).toBe(403);
+  });
+
+  it("accepts the vite dev origin only while POCKREW_DEV_ORIGIN names it", async () => {
+    const devOrigin = "http://localhost:5173";
+    const headers = { "x-pockrew-token": token, origin: devOrigin };
+    expect((await app.request("/api/health", { headers })).status).toBe(403); // unset: default stays closed
+
+    vi.stubEnv("POCKREW_DEV_ORIGIN", devOrigin);
+    try {
+      expect((await app.request("/api/health", { headers })).status).toBe(200);
+      // Opting one origin in never opens the rest.
+      const evil = { "x-pockrew-token": token, origin: "http://evil.example" };
+      expect((await app.request("/api/health", { headers: evil })).status).toBe(403);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+    expect((await app.request("/api/health", { headers })).status).toBe(403);
+  });
+
+  it("ignores a POCKREW_DEV_ORIGIN that is not loopback, so the env var cannot open a remote site", async () => {
+    for (const value of ["https://evil.example", "http://evil.example:5173", "not-a-url"]) {
+      vi.stubEnv("POCKREW_DEV_ORIGIN", value);
+      const res = await app.request("/api/health", { headers: { "x-pockrew-token": token, origin: value } });
+      expect(res.status).toBe(403);
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("serves the web app without a token, and never the API", async () => {
+    // The token rides in the URL fragment, which the browser never sends, so the page must load
+    // without one. GET / is the built index.html when `pnpm build` ran, a 404 otherwise.
+    const page = await app.request("/");
+    expect(webBuilt() ? [200] : [404]).toContain(page.status);
+    if (webBuilt()) expect(page.headers.get("content-type")).toContain("text/html");
+    expect((await app.request("/api/health")).status).toBe(401);
+    expect((await app.request("/event", { method: "POST", body: "{}" })).status).toBe(401);
   });
 });
 
