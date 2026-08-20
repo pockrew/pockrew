@@ -35,6 +35,8 @@ type ClaudePayload = {
   message?: string;
   notification_type?: string;
   reason?: string;
+  /** The user's own turn text (UserPromptSubmit only). */
+  prompt?: string;
 };
 
 type Activity = NonNullable<AgentEvent["activity"]>;
@@ -64,6 +66,12 @@ const commandFor = (p: ClaudePayload): string | undefined => {
   return typeof command === "string" ? command : undefined;
 };
 
+/** The Task/Agent tool's own short label for what the subagent is being sent to do. */
+const descriptionFor = (p: ClaudePayload): string | undefined => {
+  const description = (p.tool_input ?? {})["description"];
+  return typeof description === "string" ? description : undefined;
+};
+
 /** Parses the leading "Exit code N" that PostToolUseFailure prepends to `error`; absent when unparseable. */
 const exitCodeFromError = (error: string | undefined): number | undefined => {
   const match = error?.match(/^Exit code (\d+)/);
@@ -85,6 +93,16 @@ const bashActivity = (p: ClaudePayload, exitCode: number | undefined): Activity 
   ...opt("exitCode", exitCode),
 });
 
+const isSubagentTool = (tool: string | undefined): boolean => tool === "Task" || tool === "Agent";
+
+// The Task/Agent tool call's own description, carried as `operation` — the same slot bash uses
+// for its command. This is the only real signal naming a subagent's job; SubagentStart itself
+// carries none (real fixture: tests/fixtures/claude/hooks-v2.1.235.jsonl).
+const taskActivity = (p: ClaudePayload): Activity => ({
+  ...activityFor(p.tool_name),
+  ...opt("operation", truncateSummary(descriptionFor(p))),
+});
+
 const fileFor = (p: ClaudePayload): AgentEvent["file"] | undefined => {
   const input = p.tool_input ?? {};
   const filePath = typeof input["file_path"] === "string" ? input["file_path"] : undefined;
@@ -100,9 +118,38 @@ const relativize = (path: string, cwd: string | undefined): string => {
   return path.startsWith("/") ? path.split("/").slice(-2).join("/") : path;
 };
 
+/** An absolute path token — same shape `relativize` matches, minus the cwd it doesn't have here. */
+const ABSOLUTE_PATH = /\/[\w.-]+(?:\/[\w.-]+)+/g;
+
+/** Word-name credential markers; matched as whole identifier segments, not bare substrings
+ *  ("monkey=business" must not trip on the "key" inside "monkey"). */
+const CREDENTIAL_WORDS = new Set(["key", "token", "secret", "password", "apikey", "accesstoken"]);
+const KEY_VALUE = /\b([\w-]+)\s*[:=]\s*(\S+)/g;
+
+/** A long unbroken alnum run with at least one digit — the shape of a hex hash, base64 blob, or
+ *  API key. Requiring a digit keeps plain words (e.g. a camelCase flag name) from false-positives. */
+const LONG_ALNUM_RUN = /\b(?=[A-Za-z0-9]*[0-9])[A-Za-z0-9]{24,}\b/g;
+
+// Never persist an absolute path or a secret-shaped token in user-visible text (spec: "Summaries
+// are sanitized, truncated, and stripped of secrets and absolute paths before persisting").
+const stripAbsolutePaths = (text: string): string =>
+  text.replace(ABSOLUTE_PATH, (match) => match.split("/").filter(Boolean).slice(-2).join("/"));
+
+const redactSecrets = (text: string): string =>
+  text
+    .replace(KEY_VALUE, (match, name: string) =>
+      name
+        .toLowerCase()
+        .split(/[-_]/)
+        .some((segment) => CREDENTIAL_WORDS.has(segment))
+        ? `${name}=[redacted]`
+        : match,
+    )
+    .replace(LONG_ALNUM_RUN, "[redacted]");
+
 export const truncateSummary = (text: string | undefined): string | undefined => {
   if (!text) return undefined;
-  const clean = text.replace(/\s+/g, " ").trim();
+  const clean = redactSecrets(stripAbsolutePaths(text.replace(/\s+/g, " ").trim()));
   return clean.length > 160 ? clean.slice(0, 159) + "…" : clean;
 };
 
@@ -141,17 +188,26 @@ const normalizeClaudeHook = (raw: RawSourceEvent): AgentEvent | null => {
     case "SessionEnd":
       return { ...base(raw, p, "session_ended"), kind: "session_ended", ...opt("summary", truncateSummary(p.reason)) };
     case "UserPromptSubmit":
-      return { ...base(raw, p, "prompt_submitted"), kind: "prompt_submitted" };
+      return {
+        ...base(raw, p, "prompt_submitted"),
+        kind: "prompt_submitted",
+        ...opt("summary", truncateSummary(p.prompt)),
+      };
     case "PreToolUse":
       return {
         ...base(raw, p, "activity_started"),
         kind: "activity_started",
-        activity: activityFor(p.tool_name),
+        activity: isSubagentTool(p.tool_name) ? taskActivity(p) : activityFor(p.tool_name),
         ...opt("file", fileFor(p)),
       };
     case "PostToolUse": {
       const approvedBy = approvedByFor(p.permission_mode);
-      const activity = p.tool_name === "Bash" ? bashActivity(p, exitCodeFromResponse(p)) : activityFor(p.tool_name);
+      const activity =
+        p.tool_name === "Bash"
+          ? bashActivity(p, exitCodeFromResponse(p))
+          : isSubagentTool(p.tool_name)
+            ? taskActivity(p)
+            : activityFor(p.tool_name);
       return {
         ...base(raw, p, "activity_completed"),
         kind: "activity_completed",
@@ -167,7 +223,14 @@ const normalizeClaudeHook = (raw: RawSourceEvent): AgentEvent | null => {
         ...opt("summary", truncateSummary(p.error)),
       };
     case "SubagentStart":
-      return { ...base(raw, p, "subagent_started"), kind: "subagent_started" };
+      // agent_type ("general-purpose", …) is real signal off the spawn event itself, carried in
+      // the same `summary` slot other kinds use for their own short text (world.ts reads it back
+      // for an honest fallback label — never invented, and dropped when the provider sent "").
+      return {
+        ...base(raw, p, "subagent_started"),
+        kind: "subagent_started",
+        ...opt("summary", truncateSummary(p.agent_type)),
+      };
     case "SubagentStop":
       return {
         ...base(raw, p, "subagent_completed"),

@@ -75,6 +75,24 @@ describe("normalize: claude hook fixture replay", () => {
     }
   });
 
+  it("never leaks an absolute path verbatim, even one quoted inside a raw user prompt or command", () => {
+    // Fixture: session 04965c90's own prompts ask for `touch /tmp/m0-outside.txt`,
+    // `touch /etc/marker.txt`, and the PermissionRequest tool_input repeats /tmp/m0-outside2.txt —
+    // real absolute paths that used to flow straight into summary/operation unsanitized.
+    const leaks = ["/tmp/m0-outside.txt", "/tmp/m0-outside2.txt", "/etc/marker.txt", "/private/tmp/m0-perm"];
+    for (const e of events) {
+      for (const text of [e.summary, e.activity?.operation]) {
+        if (text === undefined) continue;
+        for (const leak of leaks) expect(text).not.toContain(leak);
+      }
+    }
+    // The real signal survives — just relativized to its last segments, same rule `relativize` uses.
+    const prompt = events.find((e) => e.kind === "prompt_submitted" && e.summary?.includes("outside2"));
+    expect(prompt?.summary).toContain("tmp/m0-outside2.txt");
+    const command = events.find((e) => e.activity?.operation?.includes("outside.txt"));
+    expect(command?.activity?.operation).toContain("tmp/m0-outside.txt");
+  });
+
   it("deduplicates: replaying the same fixture twice yields identical dedupeKeys", () => {
     const again = replayClaudeFixture();
     expect(again.map((e) => e.dedupeKey)).toEqual(events.map((e) => e.dedupeKey));
@@ -151,5 +169,22 @@ describe("truncateSummary", () => {
     expect(truncateSummary("a".repeat(200))?.length).toBe(160);
     expect(truncateSummary("a\n\n  b")).toBe("a b");
     expect(truncateSummary(undefined)).toBeUndefined();
+  });
+
+  it("relativizes an absolute path to its last segments, same rule as file fields", () => {
+    expect(truncateSummary("run touch /etc/marker.txt now")).toBe("run touch etc/marker.txt now");
+    expect(truncateSummary("see /private/tmp/m0-perm/util.js")).toBe("see m0-perm/util.js");
+  });
+
+  it("redacts a key/token/secret/password-named value, but not a word merely containing 'key'", () => {
+    expect(truncateSummary("TOKEN=abc123 continue")).toBe("TOKEN=[redacted] continue");
+    expect(truncateSummary("api_key: sk-live-xyz done")).toBe("api_key=[redacted] done");
+    expect(truncateSummary("monkey=business as usual")).toBe("monkey=business as usual"); // not a credential
+  });
+
+  it("redacts a long unbroken hex/base64-looking run, but not a long plain word", () => {
+    const hash = "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2";
+    expect(truncateSummary(`commit ${hash} done`)).toBe("commit [redacted] done");
+    expect(truncateSummary("dangerouslyDisableSandbox: true")).toBe("dangerouslyDisableSandbox: true");
   });
 });
