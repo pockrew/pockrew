@@ -1,13 +1,19 @@
 // pockrew CLI: start | setup | doctor | uninstall. One command each, no arg lib.
-import { existsSync, readFileSync } from "node:fs";
-import { sep } from "node:path";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { dirname, join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { serve } from "@hono/node-server";
 
 import { claudeSettingsPath, install, MARKER, planInstall, uninstall } from "#adapters/claude/install.js";
+import { openStore } from "#core/store/store.js";
+import { checkDaemonCoverage, HEARTBEAT_KEY } from "#server/coverage.js";
 import { createApp, type ServerState } from "#server/http.js";
 import { acquireRegistry, readRegistry, registryPath, releaseRegistry } from "#server/registry.js";
+
+/** Default `~/.pockrew/company.sqlite`, override via POCKREW_DB_PATH (e.g. for tests). */
+const dbPath = (): string => process.env["POCKREW_DB_PATH"] ?? join(homedir(), ".pockrew", "company.sqlite");
 
 const shimPath = (): string => {
   // The installed hook must run under plain node with no repo tooling, so it
@@ -27,13 +33,28 @@ const backupSuffix = (): string => {
 
 const cmdStart = async (): Promise<void> => {
   const reg = await acquireRegistry();
-  const state: ServerState = { token: reg.token, port: reg.port, events: [], startedAt: Date.now() };
+  const path = dbPath();
+  mkdirSync(dirname(path), { recursive: true });
+  const store = openStore(path);
+  checkDaemonCoverage(store, Date.now()); // compares against the *previous* heartbeat first
+  store.setAppState(HEARTBEAT_KEY, String(Date.now()));
+  const heartbeat = setInterval(() => store.setAppState(HEARTBEAT_KEY, String(Date.now())), 30_000);
+  heartbeat.unref(); // never keeps the process alive on its own
+  const state: ServerState = { token: reg.token, port: reg.port, store, startedAt: Date.now() };
   const app = createApp(state);
-  serve({ fetch: app.fetch, port: reg.port, hostname: "127.0.0.1" });
+  const server = serve({ fetch: app.fetch, port: reg.port, hostname: "127.0.0.1" });
   console.log(`pockrew listening on 127.0.0.1:${reg.port} (registry: ${registryPath()})`);
+  let stopping = false;
   const stop = (): void => {
-    releaseRegistry();
-    process.exit(0);
+    if (stopping) return; // a second SIGINT/SIGTERM during the drain must not re-run this
+    stopping = true;
+    clearInterval(heartbeat);
+    store.setAppState(HEARTBEAT_KEY, String(Date.now())); // clean-shutdown heartbeat: no false gap next start
+    server.close(() => {
+      store.close();
+      releaseRegistry();
+      process.exit(0);
+    });
   };
   process.on("SIGINT", stop);
   process.on("SIGTERM", stop);
@@ -68,8 +89,13 @@ const cmdDoctor = async (): Promise<void> => {
         headers: { "x-pockrew-token": reg.token },
         signal: AbortSignal.timeout(2000),
       });
-      const body = (await res.json()) as { eventsSeen?: number };
-      checks.push({ id: "daemon", ok: res.ok, message: `reachable, ${body.eventsSeen ?? 0} events seen` });
+      const body = (await res.json()) as { eventsStored?: number; degraded?: boolean };
+      const status = body.degraded ? "degraded — see /api/health for repair guidance" : "reachable";
+      checks.push({
+        id: "daemon",
+        ok: res.ok && !body.degraded,
+        message: `${status}, ${body.eventsStored ?? 0} events stored`,
+      });
     } catch {
       checks.push({ id: "daemon", ok: false, message: "registry exists but daemon unreachable (stale?)" });
     }
