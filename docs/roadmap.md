@@ -11,9 +11,14 @@ local-first).
 machine-enforced boundaries, frozen event contracts, and — as of 2026-08-19 — real captured
 fixtures from Claude Code (2.1.235) and Codex (0.148) sessions, including the full permission
 approval flow. Every pipeline feature from here is built and tested against that real data.
-As of 2026-08-21 the company world is live: districts, characters, semantic stations, and live
-activity render from the real event stream over SSE, with a pan/zoom map, per-actor inspector,
-and a game-style HUD. Final art continues to land asset-by-asset without code changes.
+As of 2026-08-21 the company world is live and the attention queue works end to end: districts,
+characters with real task nameplates and speech bubbles, road-walking movement, crowd folding
+with a per-crew roster, and a unified Needs You queue — permission prompts, errors, stalls and
+coverage gaps become one deduplicated item each, with OS notifications from the daemon (once per
+item, quiet repeat only while it still matters) and acknowledge/snooze/dismiss actions that
+survive restarts. Where a provider exposes no way to answer for you, Pockrew says so and focuses
+you to the right terminal instead of pretending. Final art continues to land asset-by-asset
+without code changes.
 
 ## Path to v0.1
 
@@ -23,8 +28,8 @@ and a game-style HUD. Final art continues to land asset-by-asset without code ch
 | M1 — Ingestion + setup   | Local daemon, one-command `setup` / `doctor` / `uninstall` that never breaks your config | ✅ done |
 | M2 — Persistence + trust | SQLite store, actor state machine, Work Receipts with honest confidence levels           | ✅ done |
 | M3 — Company world       | The visual world: districts, characters, semantic stations, live activity                | ✅ done |
-| M4 — Needs You           | Unified attention queue: approvals, questions, errors — one item, one notification       | next    |
-| M5 — Shift Report        | "Since you left": shipped vs observed, conflicts, deterministic next actions             |         |
+| M4 — Needs You           | Unified attention queue: approvals, questions, errors — one item, one notification       | ✅ done |
+| M5 — Shift Report        | "Since you left": shipped vs observed, conflicts, deterministic next actions             | next    |
 | M6 — Hardening           | Onboarding, security pass, LAN mobile companion, external testing, 8-hour soak           |         |
 | M7 — **Release v0.1**    | Shift Card sharing, docs, package published, first public tag                            |         |
 
