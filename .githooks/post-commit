@@ -1,0 +1,7 @@
+#!/bin/sh
+# Enable with: git config core.hooksPath .githooks
+# Marks the wiki stale after every commit. Agents clear the marker by running a
+# wiki ingest (see .claude/skills/wiki/SKILL.md); it never edits the wiki itself.
+[ -d wiki ] || exit 0
+git rev-parse HEAD >> wiki/.stale
+echo "wiki: marked stale ($(git rev-parse --short HEAD)) — run a wiki ingest to update wiki/"

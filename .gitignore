@@ -9,3 +9,4 @@ coverage/
 .claude/settings.local.json
 tests/fixtures/raw/
 docs/.internal
+wiki/.stale
