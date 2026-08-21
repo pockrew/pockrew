@@ -1,7 +1,7 @@
 # Overview
 
 > Sources: `docs/spec.md` (product contract), `docs/architect.md` (shape), `docs/roadmap.md`.
-> Last verified: 2026-08-21, commit `854212e` + M4 working tree.
+> Last verified: 2026-08-21, commit `31c9c61` (M4 merged to main).
 
 Pockrew is a local-first supervisor for AI coding agents: it ingests real signals from Claude
 Code hooks (and, later, Codex JSONL), reduces them into one canonical event stream, and renders
@@ -15,14 +15,9 @@ Cardinal rule: **never fake a signal** — unknown renders as unknown, confidenc
 | Milestone                                                                             | Status                                  |
 | ------------------------------------------------------------------------------------- | --------------------------------------- |
 | M0 fixtures/contracts, M1 ingestion+setup, M2 store/reducer/receipts, M3 visual world | done (committed)                        |
-| **M4 "Needs You" attention queue**                                                    | **in flight, uncommitted on `feat/m4`** |
-| M5 shift report + conflicts, M6 hardening, M7 release v0.1                            | pending                                 |
-
-M4 working-tree state: new `src/core/attention/attention.ts` (derivation + overlay lifecycle),
-`src/server/notify.ts` (macOS notifications), store migration v3 (attention overlay columns +
-`intent_audit`), `POST /api/intents` wired in `http.ts`, tests `tests/attention.test.ts` and
-`tests/intents.test.ts`. Missing half: the web attention-drawer deep-focus work and
-approve/deny (adapter capability gated). See [gaps-and-debt](gaps-and-debt.md).
+| M4 "Needs You" attention queue + OS notify                                            | done (committed `31c9c61` on main)      |
+| **M5 shift report + conflicts**                                                       | **started on `feat/m5` (empty branch)** |
+| M6 hardening, M7 release v0.1                                                         | pending                                 |
 
 ## One-paragraph data flow
 

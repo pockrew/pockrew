@@ -1,0 +1,513 @@
+/*
+ * Shift report: launcher chip in the HUD, full modal overlay when opened.
+ * Tokens only: z-index, colors, spacing, and durations respect global theme.
+ */
+
+/* Launcher chip: fixed in HUD top-left under connection chip */
+.launcher {
+  position: fixed;
+  top: calc(var(--hud-gap) + 2.25rem);
+  left: var(--hud-gap);
+  z-index: var(--z-hud);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-3);
+  background: var(--surface-raised);
+  color: var(--ink);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 2px 12px rgb(0 0 0 / 12%);
+  min-height: var(--target-min);
+}
+
+/* Full viewport backdrop overlay */
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-inspector);
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: var(--space-3);
+  background: color-mix(in srgb, var(--surface-sunken) 70%, rgb(0 0 0 / 40%));
+  backdrop-filter: blur(4px);
+  overflow-y: auto;
+  animation: overlay-fade var(--dur-fast) var(--ease-move);
+}
+
+@keyframes overlay-fade {
+  from {
+    opacity: 0;
+  }
+}
+
+/* Dialog window: mobile-first full width, capped on wider screens */
+.modal {
+  width: 100%;
+  max-width: 44rem;
+  margin: var(--space-4) auto;
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 8px 32px rgb(0 0 0 / 24%);
+  padding: var(--space-4) var(--space-4) var(--space-6);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  animation: modal-in var(--dur-fast) var(--ease-move);
+}
+
+@media (min-width: 40rem) {
+  .modal {
+    padding: var(--space-4) var(--space-6) var(--space-6);
+  }
+}
+
+@keyframes modal-in {
+  from {
+    transform: translateY(12px) scale(0.98);
+    opacity: 0;
+  }
+}
+
+.header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+  border-bottom: 1px solid var(--border);
+  padding-bottom: var(--space-3);
+}
+
+.title {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.timeWindow {
+  margin: var(--space-1) 0 0;
+  font-size: 0.85rem;
+  color: var(--ink-muted);
+}
+
+.close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface-sunken);
+  color: var(--ink);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  min-height: var(--target-min);
+  min-width: var(--target-min);
+}
+
+.content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+}
+
+.loading,
+.error {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: var(--space-8) var(--space-4);
+  color: var(--ink-muted);
+  font-size: 0.95rem;
+}
+
+/* Sections */
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.sectionTitle {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--ink);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: var(--space-1);
+}
+
+.empty {
+  margin: 0;
+  color: var(--ink-muted);
+  font-size: 0.9rem;
+}
+
+.noOutcome {
+  margin: 0;
+  color: var(--ink-muted);
+  font-size: 0.9rem;
+  font-style: italic;
+}
+
+.attentionList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.receiptList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.receiptItem {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--item-color, var(--border));
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.receiptItem[data-confidence="verified"] {
+  --item-color: var(--confidence-verified);
+}
+.receiptItem[data-confidence="observed"] {
+  --item-color: var(--confidence-observed);
+}
+.receiptItem[data-confidence="inferred"] {
+  --item-color: var(--confidence-inferred);
+}
+
+.receiptSummaryRow {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-3);
+  background: none;
+  border: none;
+  text-align: left;
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
+  min-height: var(--target-min);
+}
+
+@media (min-width: 40rem) {
+  .receiptSummaryRow {
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: center;
+    gap: var(--space-3);
+  }
+}
+
+.receiptMain {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.receiptKind {
+  font-weight: 600;
+  color: var(--ink-muted);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.receiptTitle {
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+
+.receiptMeta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  font-size: 0.8rem;
+  color: var(--ink-muted);
+}
+
+.reviewedBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--state-completed);
+  font-weight: 600;
+}
+
+.fileCountBadge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 var(--space-1);
+  background: var(--surface-sunken);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 0.75rem;
+}
+
+.confidenceBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-weight: 600;
+  color: var(--item-color, var(--ink-muted));
+}
+
+.confidenceBadge[data-confidence="verified"] {
+  --item-color: var(--confidence-verified);
+}
+.confidenceBadge[data-confidence="observed"] {
+  --item-color: var(--confidence-observed);
+}
+.confidenceBadge[data-confidence="inferred"] {
+  --item-color: var(--confidence-inferred);
+}
+
+.timeBadge {
+  font-size: 0.75rem;
+}
+
+.expandIcon {
+  display: inline-flex;
+  align-items: center;
+  color: var(--ink-muted);
+}
+
+/* Expanded Receipt Detail Block */
+.receiptDetail {
+  padding: var(--space-3);
+  border-top: 1px solid var(--border);
+  background: var(--surface-raised);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  font-size: 0.85rem;
+}
+
+.summaryText {
+  margin: 0;
+  color: var(--ink);
+  line-height: 1.4;
+}
+
+.detailSection {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.detailLabel {
+  font-weight: 600;
+  color: var(--ink-muted);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.filesList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.filesList code {
+  font-family: ui-monospace, monospace;
+  font-size: 0.8rem;
+  background: var(--surface-sunken);
+  padding: 0.1em 0.3em;
+  border-radius: var(--radius-sm);
+  word-break: break-all;
+}
+
+.evidenceList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.evidenceRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.evidenceLabel {
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.evidenceType {
+  font-size: 0.75rem;
+  color: var(--ink-muted);
+  text-transform: uppercase;
+}
+
+.evidenceRef {
+  font-family: ui-monospace, monospace;
+  font-size: 0.8rem;
+  background: var(--surface-sunken);
+  padding: 0.1em 0.3em;
+  border-radius: var(--radius-sm);
+  word-break: break-all;
+}
+
+.detailActions {
+  display: flex;
+  justify-content: flex-start;
+  padding-top: var(--space-1);
+}
+
+.markReviewedButton {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-3);
+  background: var(--surface-sunken);
+  color: var(--ink);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  min-height: var(--target-min);
+}
+
+.reviewedConfirmed {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--state-completed);
+  font-weight: 600;
+  font-size: 0.85rem;
+  min-height: var(--target-min);
+}
+
+/* Section 4: Changed */
+.changedList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.changedItem {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2) var(--space-3);
+}
+
+.changedProjectName {
+  margin: 0 0 var(--space-1);
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+/* Section 5: Problems & Recovery */
+.problemsList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.problemItem {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-3);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 0.85rem;
+}
+
+.problemItem[data-problem="blind-window"] {
+  --item-color: var(--state-waiting-user);
+}
+
+.problemItem[data-problem="failure"] {
+  --item-color: var(--state-blocked);
+}
+
+.problemItem[data-problem="error"] {
+  --item-color: var(--state-blocked);
+}
+
+.problemItem[data-problem="recovery"] {
+  --item-color: var(--state-completed);
+}
+
+.problemHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.problemKind {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-weight: 600;
+  color: var(--item-color, var(--ink));
+}
+
+.problemTitle {
+  margin: 0;
+  color: var(--ink);
+}
+
+/* Section 6: Next Actions */
+.nextActionsList {
+  margin: 0;
+  padding-left: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  font-size: 0.9rem;
+}
+
+.nextActionItem {
+  color: var(--ink);
+}
+
+.blindNote {
+  margin: 0;
+  color: var(--ink-muted);
+  font-size: 0.9rem;
+  font-style: italic;
+}

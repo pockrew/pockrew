@@ -243,3 +243,84 @@ describe("notifications: rate limit (1 per item, repeat after 10 minutes only wh
     expect(dueNotifications(stalled, new Map(), 1_000 + STALLED_AFTER_MS + 1)).toHaveLength(0); // …not the OS
   });
 });
+
+describe("ready_review producer (M5): one item per actor off the latest unreviewed review_ready receipt", () => {
+  const turnWithWrite = (actorId: string, writeAt: number, stopAt: number, turnId: string): AgentEvent[] => [
+    ev({
+      kind: "activity_completed",
+      occurredAt: writeAt,
+      actorId,
+      turnId,
+      activity: { category: "code", tool: "Edit" },
+      file: { relativePath: `src/${turnId}.ts`, operation: "write" },
+    }),
+    ev({
+      kind: "activity_completed",
+      occurredAt: stopAt,
+      actorId,
+      turnId,
+      activity: { category: "coordination", operation: "turn_stop" },
+    }),
+  ];
+
+  it("a turn that wrote files opens exactly one normal-priority item; a write-free turn opens none", () => {
+    const items = deriveAttention(turnWithWrite("a1", 1_000, 2_000, "t1"), 3_000);
+    const reviews = items.filter((i) => i.type === "ready_review");
+    expect(reviews).toHaveLength(1);
+    expect(reviews[0]!.priority).toBe("normal");
+    expect(reviews[0]!.summary).toBe("Ready for review — 1 file(s)");
+
+    const noWrites = deriveAttention(
+      [
+        ev({
+          kind: "activity_completed",
+          occurredAt: 1_000,
+          activity: { category: "coordination", operation: "turn_stop" },
+        }),
+      ],
+      2_000,
+    );
+    expect(noWrites.filter((i) => i.type === "ready_review")).toHaveLength(0);
+  });
+
+  it("a second turn updates the same item (id stable per actor, sourceRequestId moves to the latest receipt)", () => {
+    const events = [...turnWithWrite("a1", 1_000, 2_000, "t1"), ...turnWithWrite("a1", 3_000, 4_000, "t2")];
+    const reviews = deriveAttention(events, 5_000).filter((i) => i.type === "ready_review");
+    expect(reviews).toHaveLength(1);
+    expect(reviews[0]!.id).toBe("attention:ready_review:a1");
+    expect(reviews[0]!.openedAt).toBe(2_000);
+    expect(reviews[0]!.updatedAt).toBe(4_000);
+  });
+
+  it("marking the receipt reviewed clears the item; reviewing only the older one keeps the newer", () => {
+    const one = turnWithWrite("a1", 1_000, 2_000, "t1");
+    const oneItems = deriveAttention(one, 3_000).filter((i) => i.type === "ready_review");
+    const receiptId = oneItems[0]!.sourceRequestId!;
+    expect(
+      deriveAttention(one, 3_000, new Map(), { reviewedReceiptIds: new Set([receiptId]) }).filter(
+        (i) => i.type === "ready_review",
+      ),
+    ).toHaveLength(0);
+
+    const two = [...one, ...turnWithWrite("a1", 3_000, 4_000, "t2")];
+    const remaining = deriveAttention(two, 5_000, new Map(), { reviewedReceiptIds: new Set([receiptId]) }).filter(
+      (i) => i.type === "ready_review",
+    );
+    expect(remaining).toHaveLength(1);
+    expect(remaining[0]!.updatedAt).toBe(4_000);
+  });
+
+  it("dies with its session (A10 expire — the receipt stays as the record) and honors a resolve overlay", () => {
+    const live = turnWithWrite("a1", 1_000, 2_000, "t1");
+    const item = deriveAttention(live, 4_000).filter((i) => i.type === "ready_review")[0]!;
+    const resolved = deriveAttention(
+      live,
+      4_000,
+      new Map([[item.id, { status: "resolved", updatedAt: 3_500 } as AttentionOverlay]]),
+    );
+    expect(resolved.filter((i) => i.type === "ready_review")).toHaveLength(0);
+
+    const ended = [...live, ev({ kind: "session_ended", occurredAt: 3_000 })];
+    expect(deriveAttention(ended, 4_000).filter((i) => i.type === "ready_review")).toHaveLength(0);
+  });
+});

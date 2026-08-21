@@ -6,11 +6,13 @@ import { serveStatic } from "@hono/node-server/serve-static";
 
 import { fromHookPost } from "#adapters/claude/mapper.js";
 import type { UserIntent } from "#contracts/intents.js";
-import { overlayForIntent } from "#core/attention/attention.js";
+import { deriveAttention, overlayForIntent } from "#core/attention/attention.js";
 import { normalize } from "#core/normalize.js";
+import { deriveReceipts } from "#core/receipts/receipts.js";
+import { buildShiftReport } from "#core/reports/reports.js";
 import type { Store } from "#core/store/store.js";
 import { sourceCoverage } from "#server/coverage.js";
-import { createStreamHub } from "#server/stream.js";
+import { createStreamHub, LAST_SEEN_KEY, readReviewedReceipts, REVIEWED_RECEIPTS_KEY } from "#server/stream.js";
 
 export type ServerState = {
   token: string;
@@ -122,6 +124,48 @@ export const createApp = (state: ServerState, notify?: () => void): Hono => {
       return c.json({ error: "malformed" }, 400);
     }
     const b = (typeof body === "object" && body !== null ? body : {}) as Record<string, unknown>;
+    // report_seen moves the presence cursor (spec: "Closing the report moves the cursor; it
+    // never deletes receipts or attention") — no overlay, just app_state + audit.
+    if (b["kind"] === "report_seen") {
+      const raw = b["cursor"];
+      if (typeof raw !== "number" || !Number.isFinite(raw) || raw < 0) return c.json({ error: "malformed" }, 400);
+      // Clamped to now: a skewed client clock must never park the cursor in the future and
+      // permanently empty every default report.
+      const cursor = Math.min(raw, Date.now());
+      try {
+        state.store.setAppState(LAST_SEEN_KEY, String(cursor));
+        state.store.appendIntentAudit({ kind: "report_seen", cursor }, Date.now());
+        state.storeFailedAt = undefined;
+        state.lastStoreError = undefined;
+      } catch (err) {
+        state.storeFailedAt = Date.now();
+        state.lastStoreError = err instanceof Error ? err.message : String(err);
+        return c.json({ error: "store unavailable" }, 503);
+      }
+      return c.json({ ok: true, cursor });
+    }
+    // receipt_mark_reviewed flips a persisted flag on a stable receipt id — the receipt and its
+    // evidence are immutable (spec/roadmap M5); re-marking is idempotent (a Set add).
+    if (b["kind"] === "receipt_mark_reviewed") {
+      const id = b["id"];
+      if (typeof id !== "string" || id === "") return c.json({ error: "malformed" }, 400);
+      try {
+        const reviewed = readReviewedReceipts(state.store);
+        if (!reviewed.has(id)) {
+          reviewed.add(id);
+          state.store.setAppState(REVIEWED_RECEIPTS_KEY, JSON.stringify([...reviewed].sort()));
+        }
+        state.store.appendIntentAudit({ kind: "receipt_mark_reviewed", id }, Date.now());
+        state.storeFailedAt = undefined;
+        state.lastStoreError = undefined;
+      } catch (err) {
+        state.storeFailedAt = Date.now();
+        state.lastStoreError = err instanceof Error ? err.message : String(err);
+        return c.json({ error: "store unavailable" }, 503);
+      }
+      stream.broadcast(); // the reviewed flag rides recentReceipts on the next patch
+      return c.json({ ok: true, id });
+    }
     const mapped =
       typeof b["kind"] === "string"
         ? overlayForIntent(
@@ -133,7 +177,7 @@ export const createApp = (state: ServerState, notify?: () => void): Hono => {
             Date.now(),
           )
         : null;
-    // Non-attention intents (receipt_mark_reviewed, report_seen, pairing) land in M5/M6.
+    // Remaining non-attention intents (pairing_start/stop) land with M6.
     if (!mapped) return c.json({ error: "unsupported intent" }, 400);
     // Audit the *validated* intent, never the raw body — an unbounded payload must not land in
     // the store, and listIntentAudit's type must match what the row actually holds.
@@ -157,6 +201,34 @@ export const createApp = (state: ServerState, notify?: () => void): Hono => {
     }
     stream.broadcast(); // connected clients see the item leave/park immediately
     return c.json({ ok: true, id: mapped.id, status: mapped.overlay.status });
+  });
+
+  app.get("/api/report", (c) => {
+    // Thin handler (rules/server.md): window resolution here, every section decision in
+    // core/reports. `?from=` is the user-chosen cursor; default is the presence cursor.
+    const raw = c.req.query("from");
+    const override = raw === undefined ? undefined : Number(raw);
+    if (override !== undefined && !Number.isFinite(override)) return c.json({ error: "malformed" }, 400);
+    const now = Date.now();
+    try {
+      const events = state.store.listEvents(); // one query for the whole window, no N+1
+      const stored = Number(state.store.getAppState(LAST_SEEN_KEY));
+      const from = override ?? (Number.isFinite(stored) ? stored : 0);
+      const report = buildShiftReport({
+        events,
+        receipts: deriveReceipts(events),
+        attention: deriveAttention(events, now, state.store.getAttentionOverlays()),
+        from,
+        to: now,
+      });
+      // NB: a successful read never clears storeFailedAt — a recent write failure stays degraded
+      // until a write lands (same stance as /api/health).
+      return c.json(report);
+    } catch (err) {
+      state.storeFailedAt = Date.now();
+      state.lastStoreError = err instanceof Error ? err.message : String(err);
+      return c.json({ error: "store unavailable" }, 503);
+    }
   });
 
   app.get("/api/health", (c) => {

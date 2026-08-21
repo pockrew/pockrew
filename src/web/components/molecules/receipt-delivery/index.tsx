@@ -1,5 +1,6 @@
 import type { FC } from "react";
 
+import { CheckmarkBadge01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 
 import type { ReceiptView } from "#contracts/world.js";
@@ -18,9 +19,16 @@ export const ReceiptDelivery: FC<Props> = ({ receipt, projectName, now }) => {
     <li className={styles.item} data-confidence={receipt.confidence}>
       <div className={styles.row}>
         <span className={styles.kind}>{RECEIPT_KIND_LABEL[receipt.kind]}</span>
-        <span className={styles.confidence}>
-          <HugeiconsIcon icon={confidence.icon} size={14} aria-hidden="true" /> {confidence.label}
-        </span>
+        <div className={styles.status}>
+          {receipt.reviewed ? (
+            <span className={styles.reviewed}>
+              <HugeiconsIcon icon={CheckmarkBadge01Icon} size={14} aria-hidden="true" /> Reviewed
+            </span>
+          ) : null}
+          <span className={styles.confidence}>
+            <HugeiconsIcon icon={confidence.icon} size={14} aria-hidden="true" /> {confidence.label}
+          </span>
+        </div>
       </div>
       <p className={styles.title}>{receipt.title}</p>
       <div className={styles.meta}>

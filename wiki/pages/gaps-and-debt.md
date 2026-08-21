@@ -1,29 +1,49 @@
 # Gaps and debt — spec'd vs built
 
-> Compiled from full code sweep 2026-08-21 (commit `854212e` + M4 working tree). Read before
-> claiming a feature "done" or "missing", and before "fixing" a deliberate trap.
+> Compiled from full code sweep 2026-08-21 (commit `854212e` + M4 working tree); re-verified by
+> the M0–M5 deep audit 2026-08-21 (M5 working tree on `feat/m5`). Read before claiming a feature
+> "done" or "missing", and before "fixing" a deliberate trap.
 
 ## Spec'd, not implemented
 
-- **`core/conflicts/` and `core/reports/`** are `.gitkeep`-only. Guardrails (depcruise pure-zone
-  rules, guards.mjs globs) already name them; the code lands at M5 (same-file conflict
-  detection, Shift Report).
+- **Retention (spec §Persistence, roadmap M2) — no cleanup code exists at all.** `events`/
+  `intent_audit` grow unbounded; the `lastSeenAt→now` exemption is vacuous. **Latent data-loss
+  twin:** milestones are recomputed from the full event replay every rebuild (`world.ts::
+milestonesFor`) and the `milestones` table is never written — the day retention lands,
+  districts lose their levels unless counters are persisted first. Land the two together.
+- **Migration backup before the first destructive migration** — absent (documented in
+  `store.ts:15-17`); all three migrations are additive so it is vacuous today, and no guard
+  stops a destructive v4 from shipping without it.
+- **JSONL tailer/backfill (Claude) + live watcher `~/.codex/sessions` (Codex)** — deferred
+  M1→M2 in the roadmap, then dropped from the M2 list; never built. `chokidar` is a declared
+  dep imported by nothing. Consequence: spec's "Activity is recoverable from JSONL" is false —
+  a blind window is only _recorded_, never backfilled; Codex is fixture-only
+  (`CODEX_OFFLINE` labels it honestly).
+- **Git IO (one root cause, three symptoms):** `commit_created` receipts (P0 rule 5 of 6,
+  `ponytail:` in `receipts.ts`), `WorkReceipt.git`/evidence type `"git"` never populated,
+  and the Shift Report "Changed" section's `branch` field omitted. Needs read-only
+  `git rev-parse HEAD` + `git status --porcelain` at server level.
 - **`core/pipeline.ts`** is listed in architect.md but does not exist — `server/stream.ts::rebuild`
   orchestrates instead.
-- **Codex ingestion**: `fromRolloutLine` exists, **no tailer/watcher anywhere** — daemon is
-  Claude-only; `coverage.ts` labels it honestly (`CODEX_OFFLINE`).
-- **`commit_created` receipts**: `ponytail:` in `receipts.ts` — needs read-only
-  `git rev-parse HEAD` at server level; `world.ts` already counts the kind in milestones.
 - **`approvedBy: "human"`**: cross-event PermissionRequest match never built; `normalize`
   returns policy/auto/unknown only, `reduce` never reads the field.
-- **Attention producers missing** for `conflict` and `ready_review` types (priorities exist,
-  producers land M5); intents `receipt_mark_reviewed`, `report_seen`, `pairing_*` are
-  audited no-ops; `ReceiptView.reviewed` hardcoded false.
 - **`AgentAdapter` interface + `AdapterCapabilities`**: declared in contracts, implemented by
-  nothing — no runtime capability gates exist; install.ts is free functions.
-- **M4 remaining**: web drawer deep-focus to actor, approve/deny flow (45s timeout, terminal
-  fallback), per spec DoD. M3 leftovers: codex idle art + walkFrames null, true isometric
-  projection, live main+3-subagents demo still owed.
+  nothing — no runtime capability gate exists; the attention card _hardcodes_ the Claude
+  `approvals:"observe"` assumption in a comment, and the M6 adapter-health screen has nothing
+  to read.
+- **`THIRD_PARTY_NOTICES.md` is stale and was not updated when assets were vendored (M3):**
+  it still says no third-party code/assets are bundled while 10 PNGs + `sprites.svg` ship in
+  `dist/web/assets`, and it points at `docs/data-notes.md` (actual: `docs/.internal/`).
+  Owner file — flag, don't edit.
+- **Conflict detector deliberate cuts**: spec rows 2/4 (directory/worktree, normal/inferred)
+  are spec-sanctioned cuts; row 3 (repeated rewrite) is NOT in the cut list but is largely
+  subsumed by row 1. Resolve rules built: either actor's session end, BOTH actors' turn_stop,
+  or 10 quiet minutes.
+- **M3 leftovers**: codex idle art + walkFrames null (SVG fallback), true isometric projection,
+  live main+3-subagents demo — parked on the pre-release checklist.
+- **Test gaps**: integration replay stops at `WorldState` (nothing drives the React tree); no
+  soak/budget check exists (M6 owns the 8h/10k soak — it is also the only thing that would
+  catch the two stream.ts ceilings).
 
 ## Deliberate ceilings (`ponytail:` marked)
 
@@ -41,9 +61,21 @@
 - `coverage.ts`: store write failure marks **codex** degraded too, though nothing tails codex.
 - `attention.ts`: error-item ack lost when the 5-min streak window rolls (new id embeds new
   openedAt); `foldError` clears streaks by `startsWith(actorId + ":")` — actorId containing
-  `:` could clear a sibling's.
-- `reduce.ts`: sort lacks the dedupeKey tiebreaker that world.ts/attention.ts use;
-  `endedHoldMs` declared, never read (renderer concern).
+  `:` could clear a sibling's; contract status `"expired"` is never written — expiry is
+  modelled as deletion, so no consumer ever sees the status.
+- `notify.ts`: 10-min repeat for open high items sits in wording tension with §Conflict's
+  "alert once per pair+path+window" (spec wording issue, not a code bug); the notify filter is
+  priority-only — a future high+**inferred** rule would notify despite §Conflict's inferred
+  carve-out.
+- `cli.ts:68`: the startup URL line prints the token to stdout — in-spec (only _server access
+  logs_ are forbidden) but lands in shell transcripts; revisit in the M6 security pass.
+- `reduce.ts`: `defaultTimers` is one constant for every provider — spec wants per-adapter
+  capability config; moot while Claude-only. `endedHoldMs` declared/never read; `world.ts`
+  uses a different 30-min ended-linger instead of the spec'd 10s hold.
+- `ReceiptView` drops `evidence`/`files` (keeps `fileCount`) — evidence renders only inside
+  the Shift Report; warehouse HUD and actor inspector cannot show it without a contract
+  extension.
+- `reduce.ts`: sort lacks the dedupeKey tiebreaker that world.ts/attention.ts use.
 - `receipts.ts`: no-`turnId` events collapse into one bucket per actor — `review_ready` file
   sets can cross-contaminate; `writesByTurn` built over the whole replay, so a turn's receipt
   can list files written after its stop.

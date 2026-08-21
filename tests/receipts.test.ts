@@ -188,4 +188,20 @@ describe("deriveReceipts: failure_recovered", () => {
     };
     expect(deriveReceipts([notTest])).toHaveLength(0);
   });
+
+  it("build commands produce verified build_passed / build_failed with exit-code evidence", () => {
+    const build = (dedupeKey: string, occurredAt: number, exitCode: number): AgentEvent => ({
+      ...bashEvent(dedupeKey, occurredAt, exitCode, exitCode === 0 ? "activity_completed" : "activity_failed"),
+      activity: { category: "terminal", tool: "Bash", operation: "npm run build", exitCode },
+    });
+    const receipts = deriveReceipts([build("build-fail", 1, 2), build("build-pass", 2, 0)]);
+    const kinds = receipts.map((r) => r.kind);
+    expect(kinds).toContain("build_failed");
+    expect(kinds).toContain("build_passed");
+    const passed = receipts.find((r) => r.kind === "build_passed")!;
+    expect(passed.confidence).toBe("verified");
+    expect(passed.evidence.some((ev) => ev.type === "exit_code")).toBe(true);
+    // Same-category recovery applies to build too: fail at t1, pass at t2.
+    expect(receipts.some((r) => r.kind === "failure_recovered")).toBe(true);
+  });
 });

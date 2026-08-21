@@ -6,6 +6,7 @@ import type { StreamMessage } from "#contracts/stream.js";
 import type { WorldState } from "#contracts/world.js";
 
 import { applyPatchOps } from "@/lib/apply-patch";
+import { parseToken } from "@/lib/token";
 import type { ConnectionStatus } from "@/lib/world-meta";
 
 type WorldStore = {
@@ -20,11 +21,6 @@ type WorldStore = {
 
 /** Capped backoff: single-use tickets mean EventSource's own reconnect can never succeed. */
 const RECONNECT_DELAYS_MS = [1_000, 2_000, 5_000];
-
-const parseToken = (hash: string): string | null => {
-  const match = /(?:^|[#&])token=([^&]+)/.exec(hash);
-  return match?.[1] ? decodeURIComponent(match[1]) : null;
-};
 
 /** Thrown by fetchTicket so callers can tell an auth rejection (don't retry) from a transient failure (do). */
 class TicketError extends Error {

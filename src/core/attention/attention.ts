@@ -1,5 +1,8 @@
 import type { AttentionItem, AttentionPriority, AttentionType } from "#contracts/attention.js";
 import type { AgentEvent } from "#contracts/events.js";
+import type { WorkReceipt } from "#contracts/receipts.js";
+import { deriveConflicts } from "#core/conflicts/conflicts.js";
+import { deriveReceipts } from "#core/receipts/receipts.js";
 import { defaultTimers } from "#core/reduce/reduce.js";
 
 /**
@@ -9,8 +12,8 @@ import { defaultTimers } from "#core/reduce/reduce.js";
  *
  * Producers wired in M4: approval/question/error from `attention_requested`, error streaks from
  * `activity_failed`, `stalled` from an activity past its window, `coverage_gap` from the daemon's
- * own coverage events. `conflict` and `ready_review` keep their priority row here but get their
- * producers with M5's detector and inspector.
+ * own coverage events. M5 wires `conflict` from the same-file detector (core/conflicts) and
+ * `ready_review` from `review_ready` receipts (cleared by mark-reviewed).
  */
 
 /** What the user did to an item, persisted by the server so it survives restarts. */
@@ -219,13 +222,53 @@ const applyOverlay = (it: AttentionItem, overlay: AttentionOverlay | undefined, 
 };
 
 /**
+ * One `ready_review` item per actor, off that actor's LATEST unreviewed `review_ready` receipt —
+ * a newer turn's writes supersede the older ones for review purposes (the receipts themselves all
+ * stay in the warehouse). Marking the receipt reviewed clears the item; a fresh receipt after an
+ * ack is genuinely new work, so the stale-overlay rule reopens it. The item dies with its session
+ * like every other queue item (A10 expire — the queue is live "needs you", never a history); the
+ * receipt itself remains the durable record in the warehouse and the shift report.
+ */
+const readyReviewItems = (
+  events: AgentEvent[],
+  receipts: WorkReceipt[],
+  reviewedReceiptIds: ReadonlySet<string>,
+): AttentionItem[] => {
+  const endedAt = new Map<string, number>();
+  for (const e of events) {
+    if (isActorEnd(e)) endedAt.set(e.actorId, Math.max(endedAt.get(e.actorId) ?? 0, e.occurredAt));
+  }
+  const byActor = new Map<string, { first: WorkReceipt; last: WorkReceipt }>();
+  for (const r of receipts) {
+    if (r.kind !== "review_ready" || reviewedReceiptIds.has(r.id)) continue;
+    if ((endedAt.get(r.actorId) ?? -1) >= r.occurredAt) continue; // session over — receipt is the record
+    const open = byActor.get(r.actorId);
+    // receipts arrive sorted ascending — the last one seen is the latest.
+    byActor.set(r.actorId, open ? { first: open.first, last: r } : { first: r, last: r });
+  }
+  return [...byActor.values()].map(({ first, last }) => ({
+    ...item(
+      `attention:ready_review:${last.actorId}`,
+      "ready_review",
+      { actorId: last.actorId, projectId: last.projectId, confidence: last.confidence, occurredAt: first.occurredAt },
+      `Ready for review — ${last.files?.length ?? 0} file(s)`,
+    ),
+    updatedAt: last.occurredAt,
+    sourceRequestId: last.id, // the receipt to mark reviewed
+  }));
+};
+
+/**
  * Everything that still needs the user at `now`, lifecycle applied. Resolved and expired items are
  * not returned — the queue is what remains, not a history (the events and audit trail are).
+ * `opts.receipts` lets the caller reuse an already-derived receipt list (assembleWorld has one);
+ * omitted, it is derived here. `opts.reviewedReceiptIds` clears ready_review items.
  */
 export const deriveAttention = (
   events: AgentEvent[],
   now: number,
   overlays: ReadonlyMap<string, AttentionOverlay> = new Map(),
+  opts: { receipts?: WorkReceipt[]; reviewedReceiptIds?: ReadonlySet<string> } = {},
 ): AttentionItem[] => {
   const seen = new Set<string>();
   const ordered = events
@@ -248,6 +291,8 @@ export const deriveAttention = (
     ...[...streaks.values()].map((s) => s.itm),
     ...stalledItems(openActivities, now),
     ...gaps.values(),
+    ...deriveConflicts(ordered, now),
+    ...readyReviewItems(ordered, opts.receipts ?? deriveReceipts(ordered), opts.reviewedReceiptIds ?? new Set()),
   ]
     .map((it) => applyOverlay(it, overlays.get(it.id), now))
     .filter((it) => it.status !== "resolved" && it.status !== "expired")

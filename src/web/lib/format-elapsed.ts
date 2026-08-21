@@ -3,7 +3,7 @@ const HOUR = 60 * MIN;
 const DAY = 24 * HOUR;
 
 /** HH:MM in the viewer's own locale — an absolute time never implies "currently happening". */
-const formatClockTime = (ms: number): string =>
+export const formatClockTime = (ms: number): string =>
   new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
 /**

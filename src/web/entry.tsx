@@ -5,6 +5,7 @@ import type { UserIntent } from "#contracts/intents.js";
 import { ConnectionBadge } from "./components/molecules/connection-badge";
 import { AttentionDrawer } from "./components/organisms/attention-drawer";
 import { DeliveriesHud } from "./components/organisms/deliveries-hud";
+import { ShiftReport } from "./components/organisms/shift-report";
 import { World, type FocusRequest } from "./components/organisms/world";
 import { useWorldStore } from "./state";
 
@@ -64,6 +65,13 @@ export const WebEntry: FC = () => {
         projectNames={projectNames}
         now={world.generatedAt}
         yieldTo={inspecting}
+      />
+      <ShiftReport
+        actors={world.actors}
+        projectNames={projectNames}
+        now={world.generatedAt}
+        recentReceipts={world.recentReceipts}
+        onIntent={handleIntent}
       />
     </div>
   );

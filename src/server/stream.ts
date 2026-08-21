@@ -16,6 +16,27 @@ import { assembleWorld, STATION_BY_CATEGORY } from "#core/world.js";
 /** Spec: a ticket is valid for 30 seconds and for one connection. */
 const TICKET_TTL_MS = 30_000;
 
+/** app_state key for the presence cursor (spec "Shift Report"): the last moment a web client was
+ *  actually watching. Stamped while connected, frozen when the last client leaves — the shift
+ *  report window starts here. Moved explicitly by the `report_seen` intent. */
+export const LAST_SEEN_KEY = "lastSeenAt";
+
+/** app_state key holding the JSON string[] of receipt ids the user marked reviewed.
+ *  ponytail: one JSON blob read-modify-written per intent — move to a table when retention
+ *  cleanup lands or the list measurably grows. */
+export const REVIEWED_RECEIPTS_KEY = "reviewedReceipts";
+
+/** Malformed/missing state degrades to "nothing reviewed" — never a crash on a corrupt row. */
+export const readReviewedReceipts = (store: Store): Set<string> => {
+  try {
+    const raw = store.getAppState(REVIEWED_RECEIPTS_KEY);
+    const parsed: unknown = raw === undefined ? [] : JSON.parse(raw);
+    return new Set(Array.isArray(parsed) ? parsed.filter((x): x is string => typeof x === "string") : []);
+  } catch {
+    return new Set();
+  }
+};
+
 // How often a connected client is re-diffed so time-derived state (idle, ended, an activity past
 // its window) actually arrives. Our own number: well inside the 750 ms-per-event budget's spirit
 // while the shortest reducer hold is 8s, and cheap because an unchanged world sends nothing.
@@ -151,8 +172,23 @@ export const createStreamHub = (deps: StreamDeps): StreamHub => {
   const currentWorld = (): WorldState => {
     const now = Date.now();
     const events = deps.store.listEvents();
-    const world = assembleWorld(events, now, deps.coverage(events), deps.store.getAttentionOverlays());
+    const world = assembleWorld(
+      events,
+      now,
+      deps.coverage(events),
+      deps.store.getAttentionOverlays(),
+      readReviewedReceipts(deps.store),
+    );
     return attachLayout(world, deps.store, now);
+  };
+
+  /** Presence: the cursor moves ONLY when a client disconnects (they watched until then) or via
+   *  the report_seen intent — never on connect (that would wipe the window before the report is
+   *  read) and never on a tick (EventSource stays open in a hidden tab, which would make the
+   *  "back after 10 minutes" report permanently empty). A failed write only widens the next
+   *  report window — over-reporting, never a lie. */
+  const stampPresence = (now: number): void => {
+    tryPersist(() => deps.store.setAppState(LAST_SEEN_KEY, String(now)), "presence cursor");
   };
 
   const routes = new Hono();
@@ -169,7 +205,7 @@ export const createStreamHub = (deps: StreamDeps): StreamHub => {
         void stream.writeSSE({ data: JSON.stringify(msg) }).catch(() => drop(send));
       };
       const drop = (client: typeof send): void => {
-        clients.delete(client);
+        if (clients.delete(client)) stampPresence(Date.now()); // guarded: drop can fire twice per client
         if (clients.size === 0) stopTicking();
       };
       // A full snapshot before any patch, so the client never merges across a gap (spec). It also

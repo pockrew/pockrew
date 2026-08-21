@@ -86,8 +86,8 @@ describe("POST /api/intents", () => {
     expect(worldAttention()).toHaveLength(0);
   });
 
-  it("rejects intents outside M4's scope and malformed bodies", async () => {
-    expect((await post(app, "/api/intents", { kind: "receipt_mark_reviewed", id: "r" })).status).toBe(400);
+  it("rejects intents outside scope (pairing lands M6) and malformed bodies", async () => {
+    expect((await post(app, "/api/intents", { kind: "pairing_start" })).status).toBe(400);
     expect((await post(app, "/api/intents", { kind: "attention_ack" })).status).toBe(400); // no id
     const raw = await app.request("/api/intents", {
       method: "POST",

@@ -250,7 +250,7 @@ const stationFor = (state: ActorView["state"], activity: ActivityView | undefine
   return "lounge"; // no current signal (spec: no signal → lounge)
 };
 
-const receiptView = (r: WorkReceipt): ReceiptView => ({
+const receiptView = (r: WorkReceipt, reviewedReceiptIds: ReadonlySet<string>): ReceiptView => ({
   id: r.id,
   projectId: r.projectId,
   actorId: r.actorId,
@@ -261,8 +261,10 @@ const receiptView = (r: WorkReceipt): ReceiptView => ({
   // Summaries are truncated to 160 chars upstream in normalize/receipts, never re-cut here.
   ...opt("summary", r.summary),
   fileCount: r.files?.length ?? 0,
-  // No user signal for "reviewed" exists yet; a mark-reviewed intent lands with the store column.
-  reviewed: false,
+  // Real user signal only (M5): the receipt_mark_reviewed intent persists the id server-side.
+  // Receipt ids are stable across re-derivation (receipt:${kind}:${dedupeKey}), so the flag
+  // survives every rebuild. Evidence itself is immutable — this flips a flag, nothing else.
+  reviewed: reviewedReceiptIds.has(r.id),
 });
 
 const milestonesFor = (projectId: string, receipts: WorkReceipt[]): MilestoneView[] => {
@@ -287,6 +289,7 @@ export const assembleWorld = (
   now: number,
   coverage: WorldState["coverage"],
   attentionOverlays: ReadonlyMap<string, AttentionOverlay> = new Map(),
+  reviewedReceiptIds: ReadonlySet<string> = new Set(),
 ): WorldState => {
   const seen = new Set<string>();
   const ordered = events
@@ -299,8 +302,8 @@ export const assembleWorld = (
     .filter((a) => witnessed.has(a.id))
     .filter((a) => a.state !== "ended" || now - a.updatedAt <= ENDED_LINGER_MS);
   const activityByActor = currentActivities(ordered, now);
-  const attention = deriveAttention(ordered, now, attentionOverlays);
   const receipts = deriveReceipts(events);
+  const attention = deriveAttention(ordered, now, attentionOverlays, { receipts, reviewedReceiptIds });
   const { names, taskSummaries } = actorLabels(snapshots, ordered);
 
   const actors: ActorView[] = snapshots
@@ -341,7 +344,10 @@ export const assembleWorld = (
     actors,
     activities: [...activityByActor.values()].sort((a, b) => a.startedAt - b.startedAt || a.id.localeCompare(b.id)),
     attention,
-    recentReceipts: receipts.slice(-RECENT_RECEIPT_LIMIT).reverse().map(receiptView),
+    recentReceipts: receipts
+      .slice(-RECENT_RECEIPT_LIMIT)
+      .reverse()
+      .map((r) => receiptView(r, reviewedReceiptIds)),
     milestones: projects.flatMap((p) =>
       milestonesFor(
         p.id,
