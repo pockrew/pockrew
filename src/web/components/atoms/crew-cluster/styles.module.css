@@ -1,0 +1,108 @@
+/* A folded crowd standing on the plate: overlapped characters + a count badge, caption under. */
+.cluster {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  color: var(--ink);
+  font: inherit;
+  cursor: pointer;
+  transform: translate(var(--chip-x), var(--chip-y));
+  transition: transform var(--dur-move) var(--ease-move);
+}
+
+.stack {
+  position: relative;
+  display: inline-flex;
+  align-items: flex-end;
+}
+
+.avatar {
+  width: 30px;
+  height: 30px;
+  object-fit: contain;
+  filter: drop-shadow(0 3px 5px rgb(0 0 0 / 20%));
+}
+
+/* Overlap: each next character stands half behind the previous one — a crowd, not a row. */
+.avatar + .avatar {
+  margin-left: -16px;
+}
+
+.count {
+  position: absolute;
+  top: -6px;
+  right: -10px;
+  min-width: 18px;
+  padding: 0 4px;
+  font-size: 0.62rem;
+  font-weight: 700;
+  text-align: center;
+  color: var(--surface-raised);
+  background: var(--ink-muted);
+  border-radius: 999px;
+}
+
+.cluster[data-kind="active"] .count {
+  background: var(--state-working);
+}
+
+/* Someone inside needs the user: the badge shouts it even while the crew is folded. */
+.cluster[data-urgent] .count {
+  background: var(--state-waiting-user);
+  animation: urgent-pulse 1.2s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cluster[data-urgent] .count {
+    animation: none;
+  }
+}
+
+@keyframes urgent-pulse {
+  50% {
+    opacity: 0.55;
+  }
+}
+
+.caption {
+  display: inline-flex;
+  gap: var(--space-1);
+  max-width: 8rem;
+  overflow: hidden;
+  white-space: nowrap;
+  padding: 0 var(--space-1);
+  font-size: 0.62rem;
+  font-weight: 600;
+  background: color-mix(in srgb, var(--surface) 72%, transparent);
+  border-radius: var(--radius-sm);
+}
+
+.group {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.group[data-state="idle"] {
+  color: var(--state-idle);
+}
+
+.group[data-state="ended"] {
+  color: var(--state-ended);
+}
+
+/* The ended bench has gone home: dimmed, no live colour. */
+.cluster[data-kind="ended"] {
+  opacity: 0.6;
+}
+
+.cluster:hover .avatar {
+  filter: drop-shadow(0 0 6px var(--state-working)) drop-shadow(0 3px 5px rgb(0 0 0 / 20%));
+}

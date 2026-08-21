@@ -13,8 +13,10 @@ import { RECENT_WINDOW_MS, STATION_BY_CATEGORY, STATION_LABEL, STATION_ORDER } f
  * up. Everything here is pure: the only clock is the `now` passed in.
  */
 
-/** One building cell. The plate is `side` × `side` of these, so it covers the town exactly. */
-const CELL = { width: 152, height: 140 };
+/** One building cell. The plate is `side` × `side` of these, so it covers the town exactly.
+ *  Sized so two ~90px game units stand side by side at a building's foot without spilling;
+ *  three would need a ~290px cell (a town nearly twice as wide), so three-plus folds instead. */
+const CELL = { width: 200, height: 160 };
 
 export const CELL_SIZE = CELL;
 
@@ -27,16 +29,22 @@ export const plateSize = (side: number): { width: number; height: number } => ({
 /** The plate a 3×3 town sits on — the size the world grid paces itself by until a town outgrows it. */
 export const PLATE_SIZE = plateSize(3);
 
-/** Chips sit at the foot of their building and stack downwards. */
-const CHIP_INSET = { x: 8, y: 84 };
-const CHIP_PITCH = 44;
-const ROWS_PER_COLUMN = 2;
-const COLUMN_PITCH = 118;
-/** Where a relationship link attaches to a chip: left edge, mid height. */
-const ANCHOR_DX = 10;
-const ANCHOR_DY = 15;
-/** One resting actor is not a stack — folding starts to pay off at two. */
-const CLUSTER_MIN = 2;
+/** Chips stand at the foot of their building, side by side first (two guards at the door), then
+ *  a second row. A unit is ~90px wide, ~76px tall; the pitches pace by that footprint and leave
+ *  headroom for the status pill and speech bubble. */
+const CHIP_INSET = { x: 10, y: 86 };
+const CHIP_PITCH = 84;
+const UNITS_PER_ROW = 2;
+const UNIT_PITCH = 94;
+/** Where a relationship link attaches to a chip: roughly the avatar's chest. */
+const ANCHOR_DX = 44;
+const ANCHOR_DY = 38;
+/** Where the unit visually stands relative to its own top-left — its feet, mid avatar. */
+export const CHIP_FOOT = { x: 44, y: 48 };
+/** Every crowd folds from five: up to four units hold a spot's four corners (a 2×2 formation) —
+ *  just enough to read busy without piling; a fifth folds the crowd into one stack. Applies to
+ *  station crews, the lounge and the memorial hall alike. */
+const FOLD_FROM = 5;
 
 const RESTING_STATES: ReadonlySet<ActorView["state"]> = new Set(["idle", "ended"]);
 /** A link only flows while the subagent is actually doing something. */
@@ -74,6 +82,17 @@ export type ChipPlacement = {
 
 export type ChipLink = { id: string; x1: number; y1: number; x2: number; y2: number; active: boolean };
 
+/** A folded crowd: a crowded station's crew, or the idle / ended benches. Click opens the roster. */
+export type CrewCluster = {
+  /** Stable roster key: `station:<name>` | "idle" | "ended". */
+  key: string;
+  label: string;
+  kind: "active" | "idle" | "ended";
+  x: number;
+  y: number;
+  actors: ActorView[];
+};
+
 export type DistrictLayout = {
   /** Cells per side of this town's grid — always odd, always ≥ 3. */
   side: number;
@@ -86,10 +105,10 @@ export type DistrictLayout = {
   roadCells: RoadCell[];
   chips: ChipPlacement[];
   links: ChipLink[];
-  /** Null when there is nothing worth folding. `folded` is false while the cluster is expanded. */
-  cluster: { x: number; y: number; actors: ActorView[]; folded: boolean } | null;
-  /** Walk route from a station to a point, following the roads. Null when that station is gone. */
-  travelPath: (from: Station, to: Point) => Travel | null;
+  clusters: CrewCluster[];
+  /** Walk route between two stations (then to the chip's spot), following the roads. Null when
+   *  the origin station is gone from this plate. */
+  travelPath: (from: Station, to: Station, spot: Point) => Travel | null;
 };
 
 /**
@@ -196,15 +215,8 @@ export const roadNetwork = (from: Iterable<Cell>): RoadCell[] => {
 export const polyline = (points: readonly Point[]): string =>
   points.map((point, i) => `${i === 0 ? "M" : "L"} ${point.x} ${point.y}`).join(" ");
 
-/** Manhattan length of a polyline — close enough to route length for pacing a walk. */
-const pathLength = (points: readonly Point[]): number =>
-  points.reduce((sum, point, i) => {
-    const previous = points[i - 1];
-    return previous ? sum + Math.abs(point.x - previous.x) + Math.abs(point.y - previous.y) : sum;
-  }, 0);
-
-/** Longer walks take more time, but less time per pixel: the further you go, the more you run. */
-export const travelFactor = (distance: number): number => Math.min(3, Math.max(1, distance / 220));
+/** Walk pacing: one --dur-walk per cell hopped, capped so a cross-town trek never drags. */
+export const travelFactor = (routeCells: number): number => Math.min(6, Math.max(1, routeCells - 1));
 
 /** An idle actor still holding an open attention item stays visible — folding it would hide work. */
 export const isResting = (actor: Pick<ActorView, "state" | "attentionIds">): boolean =>
@@ -226,10 +238,9 @@ type LayoutInput = {
   activities: readonly ActivityView[];
   /** world.generatedAt — the only clock this module knows. */
   now: number;
-  expanded: boolean;
 };
 
-export const layoutDistrict = ({ project, actors, activities, now, expanded }: LayoutInput): DistrictLayout => {
+export const layoutDistrict = ({ project, actors, activities, now }: LayoutInput): DistrictLayout => {
   const present = builtStations(project, actors, activities, now);
   const cells = townCells(project, present);
   // The plate grows to contain the cells it was given; the cells themselves never move.
@@ -266,21 +277,68 @@ export const layoutDistrict = ({ project, actors, activities, now, expanded }: L
     taken.set(station, slot + 1);
     // An actor at a station that was not built (stale signal) waits at the anchor instead.
     const base = byStation.get(station) ?? hq;
+    // Row-first: the second unit stands beside the first, never on a "floor" below it.
     return {
-      x: base.x + CHIP_INSET.x + Math.floor(slot / ROWS_PER_COLUMN) * COLUMN_PITCH,
-      y: base.y + CHIP_INSET.y + (slot % ROWS_PER_COLUMN) * CHIP_PITCH,
+      x: base.x + CHIP_INSET.x + (slot % UNITS_PER_ROW) * UNIT_PITCH,
+      y: base.y + CHIP_INSET.y + Math.floor(slot / UNITS_PER_ROW) * CHIP_PITCH,
     };
   };
 
-  const resting = actors.filter(isResting);
-  const clusterable = resting.length >= CLUSTER_MIN;
-  const hidden = new Set(clusterable && !expanded ? resting.map((a) => a.id) : []);
+  // Three crowds, three treatments: up to four active units hold a building's corners (2×2), a
+  // fifth folds the crew into one overlapping stack; idle and ended each gather on their own
+  // bench from two. A resting actor holding open attention never folds — hiding it would hide
+  // work (isResting).
+  const idle = actors.filter((a) => isResting(a) && a.state === "idle");
+  const ended = actors.filter((a) => isResting(a) && a.state === "ended");
+  const active = actors.filter((a) => !isResting(a));
+  const activeByStation = new Map<Station, ActorView[]>();
+  for (const a of active) {
+    const crew = activeByStation.get(a.station) ?? [];
+    crew.push(a);
+    activeByStation.set(a.station, crew);
+  }
 
+  // The memorial hall: where ended sessions gather, its own spot at the plate's foot — off every
+  // working building. A persisted building would need a new Station in the frozen contract
+  // (town_layout keys on Station), so this stays render-only until the owner approves one.
+  const memorial: Point = { x: plate.width - 2 * UNIT_PITCH - 10, y: plate.height - 84 };
+  let memorialTaken = 0;
+  const nextMemorialSlot = (): Point => {
+    const slot = memorialTaken;
+    memorialTaken += 1;
+    return {
+      x: memorial.x + (slot % UNITS_PER_ROW) * UNIT_PITCH,
+      y: memorial.y + Math.floor(slot / UNITS_PER_ROW) * CHIP_PITCH,
+    };
+  };
+
+  const hidden = new Set<string>();
+  const clusters: CrewCluster[] = [];
+  for (const [station, crew] of activeByStation) {
+    if (crew.length < FOLD_FROM) continue;
+    for (const a of crew) hidden.add(a.id);
+    const at = nextSlot(station);
+    clusters.push({ key: `station:${station}`, label: STATION_LABEL[station], kind: "active", ...at, actors: crew });
+  }
+  if (idle.length >= FOLD_FROM) {
+    for (const a of idle) hidden.add(a.id);
+    // The idle crew rests at the lounge when the town has one, otherwise at the anchor.
+    const at = nextSlot(byStation.has("lounge") ? "lounge" : "hq");
+    clusters.push({ key: "idle", label: "lounge", kind: "idle", ...at, actors: idle });
+  }
+  if (ended.length >= FOLD_FROM) {
+    for (const a of ended) hidden.add(a.id);
+    clusters.push({ key: "ended", label: "memorial hall", kind: "ended", ...memorial, actors: ended });
+  }
+
+  const endedIds = new Set(ended.map((a) => a.id));
   const placed = new Map<string, Point>();
   const chips: ChipPlacement[] = [];
   for (const actor of actors) {
     if (hidden.has(actor.id)) continue;
-    const at = nextSlot(actor.station);
+    // An unfolded ended unit stands at the memorial hall, not back at its old building —
+    // otherwise the separate resting places would only exist while folded.
+    const at = endedIds.has(actor.id) ? nextMemorialSlot() : nextSlot(actor.station);
     placed.set(actor.id, at);
     // Everyone arrives through the anchor, main agent and subagent alike: the pop-in happens on the
     // HQ cell and the walk out to the station is the entrance.
@@ -303,18 +361,29 @@ export const layoutDistrict = ({ project, actors, activities, now, expanded }: L
     });
   }
 
-  // The resting crowd gathers at the lounge when the town has one, otherwise at the anchor.
-  const cluster = clusterable
-    ? { ...nextSlot(byStation.has("lounge") ? "lounge" : "hq"), actors: resting, folded: !expanded }
-    : null;
-
-  const travelPath = (from: Station, to: Point): Travel | null => {
+  const travelPath = (from: Station, to: Station, spot: Point): Travel | null => {
     const start = cells.get(from);
     if (!start) return null; // that station was never built here, so there is no road to walk
-    // Along the road to the anchor cell, then the last few pixels to the chip's own spot.
-    const points = [...cellPath(start, CENTER).map(center), to];
-    return { d: polyline(points), factor: travelFactor(pathLength(points)) };
+    // The street network is a star through the anchor, so a walk is old station → anchor → new
+    // station, then the last few pixels to the chip's own spot — never a straight flight across
+    // the plate. Both legs must reuse the exact cells the roads were DRAWN from: cellPath is
+    // x-first and therefore asymmetric, so the outbound leg is the destination's own drawn road
+    // (cellPath(dest → CENTER)) walked in reverse — cellPath(CENTER → dest) would flip the L and
+    // send the character across cells that have no street.
+    const dest = cells.get(to);
+    const route = dest
+      ? [...cellPath(start, CENTER), ...cellPath(dest, CENTER).reverse().slice(1)]
+      : cellPath(start, CENTER);
+    // The chip's offset-path anchors its top-left corner, but the character visually stands at
+    // its feet — shift the road points so the feet track the street's center line.
+    const onRoad = (c: Cell): Point => {
+      const at = center(c);
+      return { x: at.x - CHIP_FOOT.x, y: at.y - CHIP_FOOT.y };
+    };
+    const points = [...route.map(onRoad), spot];
+    // Paced per node: --dur-walk is one cell's worth of walking, hops multiply it.
+    return { d: polyline(points), factor: travelFactor(route.length) };
   };
 
-  return { side, plate, stations, roads, roadCells, chips, links, cluster, travelPath };
+  return { side, plate, stations, roads, roadCells, chips, links, clusters, travelPath };
 };

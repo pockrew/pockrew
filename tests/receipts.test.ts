@@ -50,10 +50,15 @@ describe("deriveReceipts: claude hook fixture replay", () => {
     expect(receipts.filter((r) => r.kind === "failure_recovered")).toHaveLength(0);
   });
 
-  it("derives observed subagent_returned for every SubagentStop with a final message", () => {
+  it("derives observed subagent_returned only for witnessed subagents, never for background helpers", () => {
+    // The fixture has 3 SubagentStops, but two (a0ad03af, a8175230) are Claude Code's internal
+    // helpers: a lone Stop with no SubagentStart and no activity. Only the real, witnessed
+    // subagent (a8d8d101, spawned by an Agent call) earns a receipt — a helper receipt would
+    // report work the user never dispatched.
     const subagents = receipts.filter((r) => r.kind === "subagent_returned");
-    expect(subagents).toHaveLength(3);
-    for (const r of subagents) expect(r.confidence).toBe("observed");
+    expect(subagents).toHaveLength(1);
+    expect(subagents[0]!.actorId.startsWith("a8d8d101")).toBe(true);
+    expect(subagents[0]!.confidence).toBe("observed");
   });
 
   it("derives observed turn_completed for every Stop hook, never labelled shipped", () => {

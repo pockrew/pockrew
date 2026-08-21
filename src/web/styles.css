@@ -72,6 +72,7 @@
   --dur-instant: 90ms;
   --dur-fast: 160ms;
   --dur-move: 320ms;
+  --dur-walk: 500ms; /* one road cell of walking; the route multiplies it per hop */
   --dur-spawn: 480ms;
   --dur-celebrate: 8s; /* completed celebration */
   --ease-move: cubic-bezier(0.32, 0.72, 0, 1);
@@ -97,6 +98,7 @@
     --dur-instant: 0ms;
     --dur-fast: 0ms;
     --dur-move: 0ms;
+    --dur-walk: 0ms;
     --dur-spawn: 0ms;
     --dur-celebrate: 0ms;
   }

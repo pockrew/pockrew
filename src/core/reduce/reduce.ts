@@ -113,6 +113,11 @@ const applyEvent = (acc: Acc, e: AgentEvent): Acc => {
     case "session_ended":
       acc.endedAt = e.occurredAt;
       acc.endedConfidence = e.confidence;
+      // A prompt dies with its session (spec A10: expired when the provider request is no longer
+      // valid) — a dead terminal can never be answered, so the character must not sit at the boss
+      // desk forever. M4's attention engine expires the queue item on the same signal.
+      acc.attentionOpenSince = undefined;
+      acc.attentionConfidence = undefined;
       break;
     case "prompt_submitted":
       acc.turnOpenSince = e.occurredAt;
@@ -166,6 +171,9 @@ const applyEvent = (acc: Acc, e: AgentEvent): Acc => {
       acc.completedConfidence = e.confidence;
       acc.endedAt = e.occurredAt;
       acc.endedConfidence = e.confidence;
+      // Same as session_ended: a stopped subagent's open prompt is no longer answerable.
+      acc.attentionOpenSince = undefined;
+      acc.attentionConfidence = undefined;
       break;
     case "attention_requested":
       acc.attentionOpenSince = e.occurredAt;

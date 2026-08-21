@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { immer } from "zustand/middleware/immer";
 
+import type { UserIntent } from "#contracts/intents.js";
 import type { StreamMessage } from "#contracts/stream.js";
 import type { WorldState } from "#contracts/world.js";
 
@@ -12,6 +13,9 @@ type WorldStore = {
   connection: ConnectionStatus;
   /** Parses the token from location.hash and opens the SSE stream. Returns a disposer to call on unmount. */
   connect: () => () => void;
+  /** POST one user intent (ack/snooze/resolve). No optimistic update — the server broadcasts the
+   *  patch, so the item leaves or parks through the same SSE path everything else changes by. */
+  sendIntent: (intent: UserIntent) => Promise<boolean>;
 };
 
 /** Capped backoff: single-use tickets mean EventSource's own reconnect can never succeed. */
@@ -64,6 +68,7 @@ export const useWorldStore = create<WorldStore>()(
     let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
     let attempt = 0;
     let disposed = false;
+    let token: string | null = null;
 
     const scheduleReconnect = (token: string) => {
       if (disposed) return;
@@ -117,10 +122,23 @@ export const useWorldStore = create<WorldStore>()(
     return {
       world: null,
       connection: "connecting",
+      sendIntent: async (intent) => {
+        if (!token) return false;
+        try {
+          const res = await fetch("/api/intents", {
+            method: "POST",
+            headers: { "x-pockrew-token": token, "content-type": "application/json" },
+            body: JSON.stringify(intent),
+          });
+          return res.ok;
+        } catch {
+          return false; // transient network failure: the item simply stays in the queue
+        }
+      },
       connect: () => {
         disposed = false;
         attempt = 0;
-        const token = parseToken(location.hash);
+        token = parseToken(location.hash);
         if (!token) {
           set((state) => {
             state.connection = "no-token";

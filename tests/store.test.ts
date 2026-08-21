@@ -113,7 +113,7 @@ test("persists events, receipts and app state idempotently", () => {
 
   const db = new DatabaseSync(dbPath);
   expect(db.prepare("PRAGMA journal_mode").get()).toMatchObject({ journal_mode: "wal" });
-  expect(db.prepare("PRAGMA user_version").get()).toMatchObject({ user_version: 2 });
+  expect(db.prepare("PRAGMA user_version").get()).toMatchObject({ user_version: 3 });
   expect(
     db
       .prepare("SELECT name FROM sqlite_schema WHERE type = 'table' ORDER BY name")
@@ -125,6 +125,7 @@ test("persists events, receipts and app state idempotently", () => {
     "attention",
     "events",
     "file_touches",
+    "intent_audit",
     "milestones",
     "projects",
     "receipts",
@@ -134,7 +135,7 @@ test("persists events, receipts and app state idempotently", () => {
   db.close();
 });
 
-test("migrates an existing v1 database to v2 in place, keeping its data, then no-ops on reopen", () => {
+test("migrates an existing v1 database to the current version in place, keeping its data, then no-ops on reopen", () => {
   const dbPath = join(dir, "migrate.sqlite");
   // Hand-build exactly the v1 schema (pre-town_layout/world_layout) with one real row in it —
   // the shape openStore's very first CREATE TABLE block produced before this migration existed.
@@ -170,21 +171,28 @@ test("migrates an existing v1 database to v2 in place, keeping its data, then no
   migrated.close();
 
   const check = new DatabaseSync(dbPath);
-  expect(check.prepare("PRAGMA user_version").get()).toMatchObject({ user_version: 2 });
-  expect(
-    check
-      .prepare("SELECT name FROM sqlite_schema WHERE type = 'table' ORDER BY name")
-      .all()
-      .map((row) => row.name),
-  ).toContain("town_layout");
+  expect(check.prepare("PRAGMA user_version").get()).toMatchObject({ user_version: 3 });
+  const tables = check
+    .prepare("SELECT name FROM sqlite_schema WHERE type = 'table' ORDER BY name")
+    .all()
+    .map((row) => row.name);
+  expect(tables).toContain("town_layout");
+  expect(tables).toContain("intent_audit"); // v3: attention overlay columns + audit trail
   check.close();
 
-  // Reopening an already-v2 database must be a no-op: no error, version unchanged.
+  // Reopening an already-migrated database must be a no-op: no error, version unchanged.
   const reopened = openStore(dbPath);
   expect(reopened.listEvents()).toEqual([{ old: "data" }]);
+  // v3 columns landed on the v1 attention stub: the overlay round-trips.
+  reopened.setAttentionOverlay("item-1", { status: "snoozed", snoozedUntil: 9_000, updatedAt: 8_000 });
+  expect(reopened.getAttentionOverlays().get("item-1")).toEqual({
+    status: "snoozed",
+    snoozedUntil: 9_000,
+    updatedAt: 8_000,
+  });
   reopened.close();
   const final = new DatabaseSync(dbPath);
-  expect(final.prepare("PRAGMA user_version").get()).toMatchObject({ user_version: 2 });
+  expect(final.prepare("PRAGMA user_version").get()).toMatchObject({ user_version: 3 });
   final.close();
 });
 

@@ -25,19 +25,20 @@ const replayClaudeFixture = (): AgentEvent[] => {
 describe("reduceActors: claude hook fixture replay", () => {
   const events = replayClaudeFixture();
   const lastOccurredAt = Math.max(...events.map((e) => e.occurredAt));
-  // Long after the fixture ends, and past every hold window: every session should read "ended" —
-  // except one, whose SessionEnd(prompt_input_exit) fires with the PermissionRequest still open;
-  // waiting_user must survive being masked by ended (see spec precedence).
-  const now = lastOccurredAt + defaultTimers.endedHoldMs + 60_000;
+  // Long after the fixture ends, past every hold window AND past the activity window: every
+  // session should read "ended" — including the one whose SessionEnd(prompt_input_exit) fired
+  // with the PermissionRequest still open (its denied Bash call never got a PostToolUse, so
+  // inside the activity window it still honestly reads "working" mid-activity). A prompt dies
+  // with its session (spec A10 lifecycle: expired once the provider request is no longer
+  // valid — M4), so nothing waits at the boss desk for a terminal that is gone.
+  const now = lastOccurredAt + defaultTimers.activityWindowMs + 60_000;
   const actors = reduceActors(events, now);
 
-  it("ends every main session actor once SessionEnd was observed, except an unresolved approval", () => {
+  it("ends every main session actor once SessionEnd was observed — an unanswered prompt dies with its session", () => {
     const sessionActors = actors.filter((a) => a.id === a.sessionId);
     expect(sessionActors.length).toBeGreaterThan(0);
-    const ended = sessionActors.filter((a) => a.state === "ended");
-    const stillWaiting = sessionActors.filter((a) => a.state === "waiting_user");
-    expect(ended.length).toBe(sessionActors.length - 1);
-    expect(stillWaiting.length).toBe(1);
+    expect(sessionActors.filter((a) => a.state === "ended").length).toBe(sessionActors.length);
+    expect(sessionActors.filter((a) => a.state === "waiting_user")).toHaveLength(0);
   });
 
   it("keeps the subagent actor, parented to its session", () => {
@@ -166,7 +167,7 @@ describe("reduceActors: synthetic state machine", () => {
     expect(actor?.state).toBe("waiting_user");
   });
 
-  it("waiting_user takes precedence over ended (an unresolved approval must not be hidden)", () => {
+  it("an unanswered prompt dies with its session: ended, never waiting_user forever (spec A10 expire)", () => {
     const events = [
       evt({ actorId: "a", kind: "session_started", occurredAt: 0 }),
       evt({
@@ -177,8 +178,8 @@ describe("reduceActors: synthetic state machine", () => {
       }),
       evt({ actorId: "a", kind: "session_ended", occurredAt: 2_000 }),
     ];
-    const [actor] = reduceActors(events, 2_500);
-    expect(actor?.state).toBe("waiting_user");
+    const [actor] = reduceActors(events, 2_500 + 60_000);
+    expect(actor?.state).toBe("ended");
   });
 
   it("working (an open activity within its window) takes precedence over ended", () => {

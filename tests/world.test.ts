@@ -36,6 +36,16 @@ describe("assembleWorld: claude hook fixture replay", () => {
   const lastOccurredAt = Math.max(...events.map((e) => e.occurredAt));
   const now = lastOccurredAt + defaultTimers.endedHoldMs + 60_000;
   const world = assembleWorld(events, now, coverage);
+  // The fixture spans ~70 minutes: the m0-project sessions ended long before its last event, so
+  // at `now` they have already left the map (ended linger). This mid-replay world is taken just
+  // after those sessions ended, while their characters still linger at the memorial hall.
+  const midOccurredAt = Math.max(...events.filter((e) => e.projectId.endsWith("m0-project")).map((e) => e.occurredAt));
+  const midNow = midOccurredAt + defaultTimers.endedHoldMs + 60_000;
+  const midWorld = assembleWorld(
+    events.filter((e) => e.occurredAt <= midOccurredAt),
+    midNow,
+    coverage,
+  );
 
   it("carries the coverage it was given, never an invented one", () => {
     expect(world.coverage).toEqual(coverage);
@@ -43,37 +53,54 @@ describe("assembleWorld: claude hook fixture replay", () => {
   });
 
   it("groups actors into districts named after the project directory", () => {
-    expect(world.projects.map((p) => p.displayName)).toEqual(["m0-perm", "m0-project"]);
-    for (const p of world.projects) {
+    expect(midWorld.projects.map((p) => p.displayName)).toEqual(["m0-project"]);
+    expect(world.projects.map((p) => p.displayName)).toEqual(["m0-perm"]);
+    for (const p of [...midWorld.projects, ...world.projects]) {
       expect(p.actorIds.length).toBeGreaterThan(0);
-      for (const id of p.actorIds) {
-        expect(world.actors.find((a) => a.id === id)?.projectId).toBe(p.id);
-      }
     }
   });
 
+  it("an ended character lingers for a while, then leaves the map — never an ever-growing crowd", () => {
+    // Just after they ended: the m0-project sessions still stand (memorial linger)…
+    expect(midWorld.actors.some((a) => a.projectId.endsWith("m0-project"))).toBe(true);
+    // …an hour later they are gone; their receipts stay derivable from the same events.
+    expect(world.actors.some((a) => a.projectId.endsWith("m0-project"))).toBe(false);
+    expect(deriveReceipts(events).some((r) => r.projectId.endsWith("m0-project"))).toBe(true);
+  });
+
   it("ends every session actor whose SessionEnd was observed, and parks it in the lounge", () => {
-    const sessions = world.actors.filter((a) => a.id === a.sessionId && a.state === "ended");
+    const sessions = midWorld.actors.filter((a) => a.id === a.sessionId && a.state === "ended");
     expect(sessions.length).toBeGreaterThan(0);
     for (const a of sessions) expect(a.station).toBe("lounge");
   });
 
-  it("sits the actor with the unresolved approval at the boss desk", () => {
-    const waiting = world.actors.filter((a) => a.state === "waiting_user");
+  it("sits the actor with the unresolved approval at the boss desk while the prompt is live", () => {
+    // Replay only up to the PermissionRequest: while the session lives, the prompt is real.
+    const at = events.findIndex((e) => e.kind === "attention_requested");
+    expect(at).toBeGreaterThan(-1);
+    const upTo = events.slice(0, at + 1);
+    const live = assembleWorld(upTo, upTo[at]!.occurredAt + 1_000, coverage);
+    const waiting = live.actors.filter((a) => a.state === "waiting_user");
     expect(waiting).toHaveLength(1);
     const actor = waiting[0]!;
     expect(actor.station).toBe("boss_desk");
-    expect(world.attention).toHaveLength(1);
-    const item = world.attention[0]!;
+    const items = live.attention.filter((i) => i.type === "approval");
+    expect(items).toHaveLength(1);
+    const item = items[0]!;
     expect(item).toMatchObject({ type: "approval", priority: "high", status: "open", projectId: actor.projectId });
     expect(item.sourceRequestId).toContain("Bash"); // real PermissionRequest id, not invented
     expect(actor.attentionIds).toEqual([item.id]);
-    expect(world.projects.find((p) => p.id === actor.projectId)?.openAttentionCount).toBe(1);
+    expect(live.projects.find((p) => p.id === actor.projectId)?.openAttentionCount).toBe(1);
+  });
+
+  it("the prompt dies with its session: long after SessionEnd nothing waits and the queue is empty (spec A10 expire)", () => {
+    expect(world.actors.filter((a) => a.state === "waiting_user")).toHaveLength(0);
+    expect(world.attention).toHaveLength(0);
   });
 
   it("parks an actor with no activity signal in the lounge with no current activity", () => {
     // Session 317d6ca1 is SessionStart + SessionEnd only — no tool call ever ran.
-    const bare = world.actors.find((a) => a.id.startsWith("317d6ca1"));
+    const bare = midWorld.actors.find((a) => a.id.startsWith("317d6ca1"));
     expect(bare?.station).toBe("lounge");
     expect(bare?.currentActivityId).toBeUndefined();
   });
@@ -82,6 +109,11 @@ describe("assembleWorld: claude hook fixture replay", () => {
     const receipts = deriveReceipts(events);
     for (const p of world.projects) {
       const verified = receipts.filter((r) => r.projectId === p.id && r.confidence === "verified");
+      expect(p.verifiedReceiptCount).toBe(verified.length);
+    }
+    const midReceipts = deriveReceipts(events.filter((e) => e.occurredAt <= midOccurredAt));
+    for (const p of midWorld.projects) {
+      const verified = midReceipts.filter((r) => r.projectId === p.id && r.confidence === "verified");
       expect(p.verifiedReceiptCount).toBe(verified.length);
     }
     expect(world.recentReceipts.some((r) => r.confidence === "observed")).toBe(true);
@@ -95,8 +127,8 @@ describe("assembleWorld: claude hook fixture replay", () => {
 
   it("milestones count verified receipts only, at targets 1/10/50/200 plus the recovery badge", () => {
     const verified = deriveReceipts(events).filter((r) => r.confidence === "verified");
-    const district = world.projects.find((p) => p.displayName === "m0-project")!;
-    const own = world.milestones.filter((m) => m.projectId === district.id);
+    const district = midWorld.projects.find((p) => p.displayName === "m0-project")!;
+    const own = midWorld.milestones.filter((m) => m.projectId === district.id);
     const verifiedHere = verified.filter((r) => r.projectId === district.id);
 
     expect(own.map((m) => [m.key, m.target])).toEqual([
@@ -126,8 +158,15 @@ describe("assembleWorld: claude hook fixture replay", () => {
 
 describe("assembleWorld: actor display names come from real prompts, never invented", () => {
   const events = replay("hooks-v2.1.235.jsonl");
-  const now = Math.max(...events.map((e) => e.occurredAt)) + defaultTimers.endedHoldMs + 60_000;
-  const world = assembleWorld(events, now, coverage);
+  // Assembled inside the ended-linger window of the m0-project sessions (the fixture spans ~70
+  // minutes), so the characters these tests name are still on the map.
+  const midOccurredAt = Math.max(...events.filter((e) => e.projectId.endsWith("m0-project")).map((e) => e.occurredAt));
+  const now = midOccurredAt + defaultTimers.endedHoldMs + 60_000;
+  const world = assembleWorld(
+    events.filter((e) => e.occurredAt <= midOccurredAt),
+    now,
+    coverage,
+  );
 
   it("names a main actor from its session's own first user prompt, truncated for display", () => {
     const actor = world.actors.find((a) => a.id === "45da5987-ae39-4fe3-b566-be9be9e798c0")!;
@@ -143,16 +182,88 @@ describe("assembleWorld: actor display names come from real prompts, never inven
     expect(subagent.displayName).toBe("Read test.js and summarize in one line");
   });
 
-  it("falls back to a structural label, per-parent ordinal, when no spawn description exists", () => {
+  it("carries the spawn call's full prompt as taskSummary when the pairing is unambiguous", () => {
+    // The Agent call's tool_input.prompt, sanitized (no absolute paths).
+    const subagent = world.actors.find((a) => a.id.startsWith("a8d8d101"))!;
+    expect(subagent.taskSummary).toBeDefined();
+    expect(subagent.taskSummary).toContain("test.js");
+    expect(subagent.taskSummary).not.toContain("/tmp/"); // sanitize stripped the absolute path
+  });
+
+  it("a lone SubagentStop (background helper) never becomes a character or a receipt", () => {
     // Fixture: session 04965c90 has two SubagentStop events (a0ad03af, a8175230) with no
-    // SubagentStart and no Task/Agent tool call ever recorded — no usable text for either.
-    const first = world.actors.find((a) => a.id.startsWith("a0ad03af"))!;
-    const second = world.actors.find((a) => a.id.startsWith("a8175230"))!;
-    expect(first.displayName.startsWith("Subagent 1 · ")).toBe(true);
-    expect(second.displayName.startsWith("Subagent 2 · ")).toBe(true);
+    // SubagentStart and no activity — Claude Code's internal helpers, not dispatched work.
+    // Rendering them would grow a ghost crowd at the memorial hall on every message.
+    const stop = events.find((e) => e.kind === "subagent_completed" && e.actorId.startsWith("a0ad03af"))!;
+    const at = assembleWorld(events, stop.occurredAt + 1_000, coverage);
+    expect(at.actors.some((a) => a.id.startsWith("a0ad03af"))).toBe(false);
+    expect(at.actors.some((a) => a.id.startsWith("a8175230"))).toBe(false);
+    expect(deriveReceipts(events).some((r) => r.actorId.startsWith("a0ad03af"))).toBe(false);
+    // The real, witnessed subagent still earns its receipt.
+    expect(deriveReceipts(events).some((r) => r.actorId.startsWith("a8d8d101"))).toBe(true);
+  });
+
+  it("falls back to a structural label, per-parent ordinal, when the spawn pairing is ambiguous — and never guesses taskSummary", () => {
+    const base = {
+      observedAt: 0,
+      source: "claude" as const,
+      confidence: "observed" as const,
+      projectId: "/p",
+      sessionId: "s1",
+      actorId: "s1",
+    };
+    const syn: AgentEvent[] = [
+      { ...base, id: "e1", dedupeKey: "e1", occurredAt: 1_000, kind: "session_started" },
+      { ...base, id: "e2", dedupeKey: "e2", occurredAt: 1_001, kind: "prompt_submitted", summary: "parent work" },
+      // Two Task calls racing two SubagentStarts: pairing is ambiguous, nothing may be guessed.
+      {
+        ...base,
+        id: "e3",
+        dedupeKey: "e3",
+        occurredAt: 1_002,
+        kind: "activity_started",
+        activity: { category: "coordination", tool: "Task", operation: "job A" },
+        summary: "prompt A",
+      },
+      {
+        ...base,
+        id: "e4",
+        dedupeKey: "e4",
+        occurredAt: 1_003,
+        kind: "activity_started",
+        activity: { category: "coordination", tool: "Task", operation: "job B" },
+        summary: "prompt B",
+      },
+      {
+        ...base,
+        id: "e5",
+        dedupeKey: "e5",
+        occurredAt: 1_004,
+        kind: "subagent_started",
+        actorId: "sub1",
+        parentActorId: "s1",
+        summary: "general-purpose",
+      },
+      {
+        ...base,
+        id: "e6",
+        dedupeKey: "e6",
+        occurredAt: 1_005,
+        kind: "subagent_started",
+        actorId: "sub2",
+        parentActorId: "s1",
+        summary: "general-purpose",
+      },
+    ];
+    const w = assembleWorld(syn, 10_000, coverage);
+    const first = w.actors.find((a) => a.id === "sub1")!;
+    const second = w.actors.find((a) => a.id === "sub2")!;
+    expect(first.displayName.startsWith("general-purpose #1 · ")).toBe(true);
+    expect(second.displayName.startsWith("general-purpose #2 · ")).toBe(true);
     // The composed label is what's budget-capped, not just the parent fragment inside it.
     expect(first.displayName.length).toBeLessThanOrEqual(48);
-    expect(second.displayName.length).toBeLessThanOrEqual(48);
+    expect(first.taskSummary).toBeUndefined();
+    expect(second.taskSummary).toBeUndefined();
   });
 
   it("falls back to the bare source+id form when a session has no prompt at all", () => {
@@ -162,10 +273,11 @@ describe("assembleWorld: actor display names come from real prompts, never inven
   });
 
   it("is deterministic: re-assembling the same events yields byte-identical names", () => {
-    const again = assembleWorld(events, now, coverage);
+    const windowed = events.filter((e) => e.occurredAt <= midOccurredAt);
+    const again = assembleWorld(windowed, now, coverage);
     expect(again.actors.map((a) => a.displayName)).toEqual(world.actors.map((a) => a.displayName));
     // Duplicated events (a re-POSTed hook) change nothing either.
-    const withDupes = assembleWorld([...events, ...events], now, coverage);
+    const withDupes = assembleWorld([...windowed, ...windowed], now, coverage);
     expect(withDupes.actors.map((a) => a.displayName)).toEqual(world.actors.map((a) => a.displayName));
   });
 });

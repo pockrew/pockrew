@@ -101,15 +101,20 @@ test("the plane paces itself by the widest town on it", () => {
     }
 });
 
-test("camera stays inside the plane and pins to the origin when the plane fits", () => {
+test("camera stays inside the plane and centers when the plane fits the viewport", () => {
   const plane = layoutDistricts(projects(4));
   expect(clampCamera(-500, -500, plane, 800, 600)).toEqual({ x: 0, y: 0 });
   expect(clampCamera(99_999, 99_999, plane, 800, 600)).toEqual({
     x: plane.width - 800,
     y: plane.height - 600,
   });
+  // A one-town world must fill the screen like a game map, not sit top-left with dead space:
+  // the axis that fits centers (negative camera = plane pushed toward the middle).
   const tiny = layoutDistricts(projects(1));
-  expect(clampCamera(120, 120, tiny, 99_999, 99_999)).toEqual({ x: 0, y: 0 });
+  expect(clampCamera(120, 120, tiny, 9_999, 9_999)).toEqual({
+    x: (tiny.width - 9_999) / 2,
+    y: (tiny.height - 9_999) / 2,
+  });
 });
 
 test("focusing a district centers it in the viewport", () => {

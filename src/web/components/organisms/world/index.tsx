@@ -10,9 +10,11 @@ import {
   type PointerEvent,
 } from "react";
 
+import type { UserIntent } from "#contracts/intents.js";
 import type { ActorView, ProjectView, WorldState } from "#contracts/world.js";
 
 import { ActorInspector } from "@/components/organisms/actor-inspector";
+import { CrewRoster } from "@/components/organisms/crew-roster";
 import { District } from "@/components/organisms/district";
 import { isOpenAttention } from "@/lib/attention";
 import { isResting, layoutDistrict, type DistrictLayout } from "@/lib/district-layout";
@@ -80,13 +82,22 @@ const WorldListMirror: FC<{
   </div>
 );
 
+/** Deep-focus request (attention tracker → this actor): `at` distinguishes repeat clicks. */
+export type FocusRequest = { actorId: string; at: number };
+
 /**
  * The world as one plane you drag across, Clash-of-Clans style: districts sit at computed
  * coordinates, the viewport is a camera, and clicking a base travels to it. The camera only ever
  * moves on a user gesture or towards the element that just took focus — nothing in a snapshot pans
- * it (docs/spec.md "Accessibility": "never auto-pan away from keyboard focus").
+ * it (docs/spec.md "Accessibility": "never auto-pan away from keyboard focus"). The one exception
+ * is `focusRequest`: an explicit user click in the attention tracker, which is a gesture too.
  */
-export const World: FC<{ world: WorldState; onInspect?: (open: boolean) => void }> = ({ world, onInspect }) => {
+export const World: FC<{
+  world: WorldState;
+  onInspect?: (open: boolean) => void;
+  focusRequest?: FocusRequest | null;
+  onIntent?: (intent: UserIntent) => void;
+}> = ({ world, onInspect, focusRequest, onIntent }) => {
   const viewportRef = useRef<HTMLDivElement>(null);
   const planeRef = useRef<HTMLDivElement>(null);
   /** The one-shot camera placement on the first snapshot. */
@@ -109,8 +120,11 @@ export const World: FC<{ world: WorldState; onInspect?: (open: boolean) => void 
   } | null>(null);
   /** True while the press that is ending turned into a pan, so its click is swallowed once. */
   const pannedRef = useRef(false);
+  /** The `at` of the last deep-focus request already handled. */
+  const handledFocusRef = useRef(0);
   const [camera, setCamera] = useState({ x: 0, y: 0, smooth: false });
-  const [idleExpanded, setIdleExpanded] = useState<Record<string, boolean>>({});
+  /** The folded crowd whose roster drawer is open, if any. */
+  const [crew, setCrew] = useState<{ projectId: string; key: string } | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   // Only districts with something alive or recent take a spot; the rest stay in data only.
   const near = useMemo(() => nearProjectIds(world), [world]);
@@ -129,11 +143,10 @@ export const World: FC<{ world: WorldState; onInspect?: (open: boolean) => void 
             actors: own,
             activities: world.activities.filter((a) => a.projectId === project.id),
             now: world.generatedAt,
-            expanded: idleExpanded[project.id] ?? false,
           }),
         };
       }),
-    [projects, world.actors, world.activities, world.generatedAt, idleExpanded],
+    [projects, world.actors, world.activities, world.generatedAt],
   );
   const plane = useMemo(
     () => layoutDistricts(projects, widestTown(towns.map((t) => t.layout.side))),
@@ -152,6 +165,7 @@ export const World: FC<{ world: WorldState; onInspect?: (open: boolean) => void 
     [plane],
   );
   const byId = new Map(world.actors.map((a) => [a.id, a]));
+  const activityById = new Map(world.activities.map((a) => [a.id, a]));
   const projectNames = new Map(world.projects.map((p) => [p.id, p.displayName]));
   const selected = selectedId === null ? undefined : byId.get(selectedId);
   const selectedParent = selected?.parentActorId ? byId.get(selected.parentActorId) : undefined;
@@ -250,18 +264,45 @@ export const World: FC<{ world: WorldState; onInspect?: (open: boolean) => void 
 
   const handleSelectActor = (actor: ActorView) => {
     if (consumePan()) return;
+    setCrew(null);
     setSelectedId(actor.id);
   };
 
-  const handleToggleIdle = (projectId: string) => {
-    setIdleExpanded((current) => ({ ...current, [projectId]: !current[projectId] }));
+  const handleOpenCrew = (projectId: string, key: string) => {
+    if (consumePan()) return;
+    setSelectedId(null); // the roster and the inspector share the same panel spot
+    setCrew({ projectId, key });
   };
 
   const handleCloseInspector = () => setSelectedId(null);
+  const handleCloseCrew = () => setCrew(null);
+
+  // The open roster's live cluster — re-found every render so it tracks patches; a crowd that
+  // dissolved (actors moved on) simply closes the drawer.
+  const openCrew = crew
+    ? towns.find((t) => t.project.id === crew.projectId)?.layout.clusters.find((c) => c.key === crew.key)
+    : undefined;
 
   useEffect(() => {
-    onInspect?.(selectedId !== null);
-  }, [selectedId, onInspect]);
+    onInspect?.(selectedId !== null || openCrew !== undefined);
+  }, [selectedId, openCrew, onInspect]);
+
+  useEffect(() => {
+    // Deep-focus from the attention tracker: travel to the actor's district and open its
+    // inspector. Guarded by `at` so world patches re-running this effect never re-pan — only a
+    // fresh click does (docs/spec.md: the camera moves on user gestures only, and this is one).
+    if (!focusRequest || focusRequest.at === handledFocusRef.current) return;
+    handledFocusRef.current = focusRequest.at;
+    const actor = byId.get(focusRequest.actorId);
+    if (!actor) return; // the actor left the world between the click and this frame
+    const index = projects.findIndex((p) => p.id === actor.projectId);
+    const placement = plane.placements[index];
+    if (placement) travelTo(placement);
+    setSelectedId(actor.id);
+    // The `at` guard is the real dependency gate: byId/projects/plane/travelTo are rebuilt every
+    // render, so listing them would be equivalent to no list — the guard keeps re-runs no-ops.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusRequest]);
 
   useEffect(() => {
     // First snapshot only: start the camera on the district that most wants the user. Later
@@ -338,18 +379,27 @@ export const World: FC<{ world: WorldState; onInspect?: (open: boolean) => void 
                 layout={layout}
                 actorCount={actors.length}
                 byId={byId}
+                activityById={activityById}
                 placement={placement}
                 spawnedSince={watchingSinceRef.current}
                 {...(selectedId ? { selectedActorId: selectedId } : {})}
                 onEnter={() => handleEnterDistrict(placement)}
                 onFocusEnter={() => handleFocusDistrict(placement)}
-                onToggleIdle={() => handleToggleIdle(project.id)}
+                onOpenCrew={(cluster) => handleOpenCrew(project.id, cluster.key)}
                 onSelectActor={handleSelectActor}
               />
             );
           })}
         </div>
       </div>
+      {openCrew && !selected ? (
+        <CrewRoster
+          title={openCrew.label}
+          actors={openCrew.actors}
+          onSelect={handleSelectActor}
+          onClose={handleCloseCrew}
+        />
+      ) : null}
       {selected ? (
         <ActorInspector
           actor={selected}
@@ -360,6 +410,7 @@ export const World: FC<{ world: WorldState; onInspect?: (open: boolean) => void 
           projectName={projectNames.get(selected.projectId) ?? selected.projectId}
           now={world.generatedAt}
           onClose={handleCloseInspector}
+          {...(onIntent ? { onIntent } : {})}
         />
       ) : null}
       <WorldListMirror

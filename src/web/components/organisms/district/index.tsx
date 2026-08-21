@@ -1,11 +1,11 @@
 import type { CSSProperties, FC } from "react";
 
-import type { ActorView, ProjectView } from "#contracts/world.js";
+import type { ActivityView, ActorView, ProjectView } from "#contracts/world.js";
 
 import { ActorChip } from "@/components/atoms/actor-chip";
-import { IdleCluster } from "@/components/atoms/idle-cluster";
+import { CrewCluster } from "@/components/atoms/crew-cluster";
 import { StationSlot } from "@/components/atoms/station-slot";
-import { CELL_SIZE, type DistrictLayout } from "@/lib/district-layout";
+import { CELL_SIZE, type CrewCluster as CrewClusterData, type DistrictLayout } from "@/lib/district-layout";
 import { isArrival } from "@/lib/travel-state";
 import { DISTRICT_PLATE_ART } from "@/lib/world-art";
 import { districtSize, type DistrictPlacement } from "@/lib/world-layout";
@@ -18,13 +18,16 @@ type Props = {
   layout: DistrictLayout;
   actorCount: number;
   byId: ReadonlyMap<string, ActorView>;
+  /** Activities by id, for each chip's speech bubble (`actor.currentActivityId`). */
+  activityById: ReadonlyMap<string, ActivityView>;
   placement: DistrictPlacement;
   /** generatedAt of the first snapshot this tab saw — anything started after it really did arrive. */
   spawnedSince: number;
   selectedActorId?: string;
   onEnter: () => void;
   onFocusEnter: () => void;
-  onToggleIdle: () => void;
+  /** A folded crowd was clicked: open its roster drawer. */
+  onOpenCrew: (cluster: CrewClusterData) => void;
   onSelectActor: (actor: ActorView) => void;
 };
 
@@ -34,12 +37,13 @@ export const District: FC<Props> = ({
   layout,
   actorCount,
   byId,
+  activityById,
   placement,
   spawnedSince,
   selectedActorId,
   onEnter,
   onFocusEnter,
-  onToggleIdle,
+  onOpenCrew,
   onSelectActor,
 }) => {
   // Every pixel size comes from the layout; the stylesheet only reads them back. The plate is
@@ -93,11 +97,13 @@ export const District: FC<Props> = ({
         ))}
         {layout.chips.map((chip) => {
           const parent = chip.actor.parentActorId ? byId.get(chip.actor.parentActorId) : undefined;
+          const activity = chip.actor.currentActivityId ? activityById.get(chip.actor.currentActivityId) : undefined;
           return (
             <ActorChip
               key={chip.actor.id}
               {...chip}
               {...(parent ? { parent } : {})}
+              {...(activity ? { activity } : {})}
               selected={chip.actor.id === selectedActorId}
               spawned={isArrival(chip.actor, spawnedSince)}
               routeFrom={layout.travelPath}
@@ -105,7 +111,9 @@ export const District: FC<Props> = ({
             />
           );
         })}
-        {layout.cluster ? <IdleCluster {...layout.cluster} onToggle={onToggleIdle} /> : null}
+        {layout.clusters.map(({ key, ...cluster }) => (
+          <CrewCluster key={key} {...cluster} onOpen={() => onOpenCrew({ key, ...cluster })} />
+        ))}
       </div>
     </section>
   );

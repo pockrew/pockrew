@@ -134,10 +134,15 @@ export const mostRelevantProjectId = (world: WorldState, candidates: readonly st
 
 export type Camera = { x: number; y: number };
 
-/** Keeps the camera inside the plane; a plane smaller than the viewport pins to the origin. */
+/** One axis of the clamp: inside the plane while it overflows the viewport; a plane smaller than
+ *  the viewport centers instead of pinning top-left — a one-town world must fill the screen like a
+ *  game map, not sit in a corner with dead space around it. */
+const clampAxis = (value: number, span: number, view: number): number =>
+  span <= view ? (span - view) / 2 : Math.max(0, Math.min(value, span - view));
+
 export const clampCamera = (x: number, y: number, plane: WorldPlane, viewW: number, viewH: number): Camera => ({
-  x: Math.max(0, Math.min(x, plane.width - viewW)),
-  y: Math.max(0, Math.min(y, plane.height - viewH)),
+  x: clampAxis(x, plane.width, viewW),
+  y: clampAxis(y, plane.height, viewH),
 });
 
 /** Camera that puts one district in the middle of the viewport — "entering the base". */

@@ -44,6 +44,10 @@ export type ActorView = {
   station: Station;
   parentActorId?: string;
   currentActivityId?: string;
+  /** The task prompt this subagent was spawned with (parent's Task/Agent call, sanitized ≤160
+   *  chars), only when the spawn pairing is unambiguous (1 spawn : 1 subagent). Never guessed.
+   *  Added post-freeze with owner approval 2026-08-21 (data-notes §5). */
+  taskSummary?: string;
   /** Open attention items pointing at this actor. */
   attentionIds: string[];
   startedAt: number;
