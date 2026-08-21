@@ -1,8 +1,11 @@
 .district {
-  background: var(--surface-raised);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
+  position: absolute;
+  left: 0;
+  top: 0;
+  /* Sizes come from DISTRICT_SIZE / STAGE_SIZE via inline custom properties. */
+  width: var(--district-w);
   padding: var(--space-3);
+  transform: translate(var(--district-x), var(--district-y));
 }
 
 .header {
@@ -17,14 +20,68 @@
   font-size: 1.1rem;
 }
 
+/* Nameplate: the base you travel to. Sized by the global 40x40 minimum target rule. */
+.plaque {
+  padding: var(--space-1) var(--space-3);
+  background: var(--surface-sunken);
+  color: var(--ink);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  font: inherit;
+  font-size: 1.1rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
 .counts {
   margin: 0;
   color: var(--ink-muted);
   font-size: 0.85rem;
 }
 
+/* The plate replaces the flat card: the base stands on ground art instead of a rounded rect. */
 .stage {
   position: relative;
-  width: 616px;
-  height: 424px;
+  width: var(--stage-w);
+  height: var(--stage-h);
+  background: var(--plate-art) center / 100% 100% no-repeat;
+}
+
+/* Roads and relationship links, under the buildings and chips. */
+.paths {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+
+/* Streets: every station is joined to the HQ anchor as the town grows. */
+.road {
+  fill: none;
+  stroke: color-mix(in srgb, var(--ink-muted) 40%, transparent);
+  stroke-width: 14;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.link {
+  stroke: var(--ink-muted);
+  stroke-width: 2;
+  opacity: 0.5;
+}
+
+/* Dashes travel from parent to subagent while the subagent is actually working. */
+.flowing {
+  stroke: var(--state-working);
+  stroke-dasharray: 6 6;
+  opacity: 1;
+  animation: flow calc(var(--dur-move) * 3) linear infinite;
+}
+
+@keyframes flow {
+  to {
+    stroke-dashoffset: -12;
+  }
 }

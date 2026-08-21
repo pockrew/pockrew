@@ -53,8 +53,11 @@
   },
   "dependencies": {
     "@hono/node-server": "^2.1.1",
+    "@hugeicons/core-free-icons": "^4.2.3",
+    "@hugeicons/react": "^1.1.9",
     "chokidar": "^5.0.0",
-    "hono": "^4.13.2"
+    "hono": "^4.13.2",
+    "immer": "^11.1.18"
   },
   "devDependencies": {
     "@ianvs/prettier-plugin-sort-imports": "^4.7.1",

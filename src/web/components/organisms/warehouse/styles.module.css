@@ -1,0 +1,32 @@
+/* Flat: the HUD panel that summons this section provides the surface and the chrome. */
+.warehouse {
+  padding: 0;
+}
+
+.title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-2);
+  font-size: 1.1rem;
+}
+
+.art {
+  width: 48px;
+  height: 48px;
+  object-fit: contain;
+}
+
+.empty {
+  margin: 0;
+  color: var(--ink-muted);
+}
+
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(220px, 100%), 1fr));
+  gap: var(--space-2);
+}

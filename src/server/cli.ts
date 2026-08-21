@@ -9,7 +9,7 @@ import { serve } from "@hono/node-server";
 import { claudeSettingsPath, install, MARKER, planInstall, uninstall } from "#adapters/claude/install.js";
 import { openStore } from "#core/store/store.js";
 import { checkDaemonCoverage, HEARTBEAT_KEY } from "#server/coverage.js";
-import { createApp, type ServerState } from "#server/http.js";
+import { createApp, webBuilt, type ServerState } from "#server/http.js";
 import { acquireRegistry, readRegistry, registryPath, releaseRegistry } from "#server/registry.js";
 
 /** Default `~/.pockrew/company.sqlite`, override via POCKREW_DB_PATH (e.g. for tests). */
@@ -44,6 +44,10 @@ const cmdStart = async (): Promise<void> => {
   const app = createApp(state);
   const server = serve({ fetch: app.fetch, port: reg.port, hostname: "127.0.0.1" });
   console.log(`pockrew listening on 127.0.0.1:${reg.port} (registry: ${registryPath()})`);
+  // The token travels in the URL fragment: browsers never send it to the server, so it stays
+  // out of access logs (spec "Security and reliability").
+  console.log(`open: http://127.0.0.1:${reg.port}/#token=${reg.token}`);
+  if (!webBuilt()) console.log("web UI not built — run: pnpm build (dev: pnpm dev, vite proxies /api here)");
   let stopping = false;
   const stop = (): void => {
     if (stopping) return; // a second SIGINT/SIGTERM during the drain must not re-run this

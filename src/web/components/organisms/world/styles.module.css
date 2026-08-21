@@ -1,6 +1,36 @@
+/*
+ * The world is the page: it fills the shell and the HUD floats above it. Deliberately no
+ * z-index here — that would open a stacking context and trap the inspector this component
+ * renders below the HUD panels it must be able to cover.
+ */
 .world {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-4);
-  padding: var(--space-4);
+  position: absolute;
+  inset: 0;
+}
+
+/*
+ * The camera. `touch-action: none` hands the whole gesture to the map, so dragging the world on a
+ * phone never fights the page scroll; `overscroll-behavior` stops a fast trackpad pan from
+ * bleeding into the document.
+ */
+.viewport {
+  position: absolute;
+  inset: 0;
+  z-index: var(--z-world);
+  overflow: hidden;
+  background: var(--surface-sunken);
+  touch-action: none;
+  overscroll-behavior: contain;
+  cursor: grab;
+}
+
+.viewport:active {
+  cursor: grabbing;
+}
+
+/* The plane is larger than the camera on purpose: travel is the point. */
+.plane {
+  position: relative;
+  transform-origin: 0 0;
+  transition: transform var(--dur-move) var(--ease-move);
 }

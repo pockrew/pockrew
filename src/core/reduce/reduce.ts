@@ -150,11 +150,22 @@ const applyEvent = (acc: Acc, e: AgentEvent): Acc => {
       acc.blockedSince = e.occurredAt;
       acc.blockedConfidence = e.confidence;
       break;
-    case "subagent_completed":
     case "task_completed":
       acc.turnOpenSince = undefined;
       acc.completedAt = e.occurredAt;
       acc.completedConfidence = e.confidence;
+      break;
+    case "subagent_completed":
+      // Kind "subagent_completed" (SubagentStop) always targets the subagent's own actor
+      // (normalize.ts sets actorId = agent_id for it) — unlike a main session, a subagent gets no
+      // separate session_ended signal to wait for; this *is* the end signal. Mark it terminal the
+      // same way session_ended does, so the idle decay below can never apply to it (spec: idle/
+      // starting describe a still-open session only — a stopped subagent is never "idle").
+      acc.turnOpenSince = undefined;
+      acc.completedAt = e.occurredAt;
+      acc.completedConfidence = e.confidence;
+      acc.endedAt = e.occurredAt;
+      acc.endedConfidence = e.confidence;
       break;
     case "attention_requested":
       acc.attentionOpenSince = e.occurredAt;

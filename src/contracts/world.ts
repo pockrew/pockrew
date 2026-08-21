@@ -14,6 +14,9 @@ export type Station = "library" | "workshop" | "lab" | "review" | "hq" | "boss_d
 
 export type ActivityCategory = "research" | "code" | "terminal" | "review" | "coordination";
 
+/** Persisted town-grid cell for one station. Approved by owner 2026-08-21 (M3b). */
+export type StationCell = { station: Station; x: number; y: number };
+
 export type ProjectView = {
   id: string;
   displayName: string;
@@ -21,6 +24,12 @@ export type ProjectView = {
   openAttentionCount: number;
   verifiedReceiptCount: number;
   updatedAt: number;
+  /** Persisted town layout — grid cells per station (town_layout table).
+   *  Absent = renderer seeds locally (project not yet persisted). */
+  stationCells?: StationCell[];
+  /** Persisted world-grid cell of this town on the whole-machine map (same
+   *  center-out scheme one level up). Absent = renderer seeds locally. */
+  worldCell?: Omit<StationCell, "station">;
 };
 
 export type ActorView = {

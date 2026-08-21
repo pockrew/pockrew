@@ -1,5 +1,7 @@
 import type { FC } from "react";
 
+import { HugeiconsIcon } from "@hugeicons/react";
+
 import type { AttentionItem } from "#contracts/attention.js";
 
 import { ATTENTION_META } from "@/lib/world-meta";
@@ -14,7 +16,7 @@ export const AttentionItemCard: FC<Props> = ({ item, actorNames }) => {
     <li className={styles.item} data-type={item.type}>
       <div className={styles.row}>
         <span className={styles.type}>
-          <span aria-hidden="true">{meta.icon}</span> {meta.label}
+          <HugeiconsIcon icon={meta.icon} size={14} aria-hidden="true" /> {meta.label}
         </span>
         <span className={styles.priority} data-priority={item.priority}>
           {item.priority}

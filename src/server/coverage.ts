@@ -1,4 +1,5 @@
 import type { AgentEvent } from "#contracts/events.js";
+import type { WorldState } from "#contracts/world.js";
 import type { Store } from "#core/store/store.js";
 
 /** app_state key: wall-clock heartbeat written by cli.ts on startup, on clean shutdown, and
@@ -42,6 +43,31 @@ const daemonEvent = (
  * as "nothing happened". No heartbeat yet (first run) means nothing to compare against — never
  * fake a blind window.
  */
+/** No live Codex tailer runs yet (M0 decision: basic adapter, watching lands later). */
+const CODEX_OFFLINE = "codex rollout tailing is not running — Claude Code sessions only for now";
+const CLAUDE_OFFLINE = "no Claude events received yet — run: pockrew setup, then restart your sessions";
+
+/**
+ * Per-source coverage rows for `WorldState`, from real signals only (AGENTS §7): a failing store
+ * write, an unmatched `coverage_lost`, or simply nothing received from that source. "healthy"
+ * requires events actually arriving — never a default.
+ */
+export const sourceCoverage = (events: AgentEvent[], storeFailure?: string): WorldState["coverage"] => {
+  const sources: Array<WorldState["coverage"][number]["source"]> = ["claude", "codex"];
+  return sources.map((source) => {
+    if (storeFailure !== undefined) return { source, status: "degraded", message: storeFailure };
+    const own = events.filter((e) => e.source === source);
+    const lastGap = own.filter((e) => e.kind === "coverage_lost" || e.kind === "coverage_restored").at(-1);
+    if (lastGap?.kind === "coverage_lost") {
+      return { source, status: "degraded", message: lastGap.summary ?? "daemon coverage lost — blind window open" };
+    }
+    if (own.length === 0) {
+      return { source, status: "offline", message: source === "codex" ? CODEX_OFFLINE : CLAUDE_OFFLINE };
+    }
+    return { source, status: "healthy" };
+  });
+};
+
 export const checkDaemonCoverage = (store: Store, now: number): void => {
   const raw = store.getAppState(HEARTBEAT_KEY);
   if (raw === undefined) return;

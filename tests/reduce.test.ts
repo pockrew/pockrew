@@ -45,6 +45,15 @@ describe("reduceActors: claude hook fixture replay", () => {
     expect(subagent).toBeDefined();
     expect(subagent?.parentActorId).toBe(subagent?.sessionId);
   });
+
+  it("ends every subagent whose SubagentStop was observed, never idle", () => {
+    // Fixture: session 04965c90 has two SubagentStop events (a0ad03af, a8175230) — no session_ended
+    // for either (subagents get no such signal), so only the fix under test can reach "ended" here.
+    const first = actors.find((a) => a.id.startsWith("a0ad03af"))!;
+    const second = actors.find((a) => a.id.startsWith("a8175230"))!;
+    expect(first.state).toBe("ended");
+    expect(second.state).toBe("ended");
+  });
 });
 
 const evt = (partial: Partial<AgentEvent> & Pick<AgentEvent, "actorId" | "occurredAt" | "kind">): AgentEvent => ({
@@ -114,6 +123,21 @@ describe("reduceActors: synthetic state machine", () => {
 
     const decayed = reduceActors(events, 1_000 + defaultTimers.completedHoldMs + 1)[0];
     expect(decayed?.state).toBe("idle");
+  });
+
+  it("a stopped subagent reads ended, never idle, once its completed hold expires", () => {
+    const events = [
+      evt({ actorId: "sub-1", parentActorId: "session-1", kind: "subagent_started", occurredAt: 0 }),
+      evt({ actorId: "sub-1", parentActorId: "session-1", kind: "subagent_completed", occurredAt: 1_000 }),
+    ];
+    const stillCelebrating = reduceActors(events, 1_000 + defaultTimers.completedHoldMs - 1)[0];
+    expect(stillCelebrating?.state).toBe("completed");
+
+    // Past both the completed hold and the idle timer: a live-session actor would read "idle"
+    // here (see the sibling test below) — a stopped subagent never should.
+    const now = 1_000 + defaultTimers.idleAfterMs + 1;
+    const [actor] = reduceActors(events, now);
+    expect(actor?.state).toBe("ended");
   });
 
   it("marks an open activity past its window unknown rather than assuming completion", () => {
