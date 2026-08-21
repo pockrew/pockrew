@@ -21,8 +21,10 @@ import { defaultTimers, reduceActors, type ActorSnapshot } from "#core/reduce/re
  * the view shapes the renderer consumes.
  */
 
-/** Spec "World mapping": activity category → station. */
-const STATION: Record<ActivityCategory, Station> = {
+/** Spec "World mapping": activity category → station. Exported so a caller placing stations on
+ *  the persisted town grid (server/stream.ts) can tell which stations a project's *activities*
+ *  imply without duplicating this map or reimplementing stationFor's precedence rules. */
+export const STATION_BY_CATEGORY: Record<ActivityCategory, Station> = {
   research: "library",
   code: "workshop",
   terminal: "lab",
@@ -85,7 +87,13 @@ const truncateDisplayName = (text: string): string =>
 
 /** A session's own first user prompt — the only real signal for what a main actor is doing. */
 const firstPromptFor = (ordered: AgentEvent[], actorId: string): string | undefined => {
-  for (const e of ordered) if (e.actorId === actorId && e.kind === "prompt_submitted" && e.summary) return e.summary;
+  for (const e of ordered) {
+    // Skip tag-like system injections (<task-notification>, <system-reminder>, …) — not a human
+    // prompt. Skip-and-fallback only: never clean or reword the text (spec principle 10).
+    if (e.actorId === actorId && e.kind === "prompt_submitted" && e.summary && !e.summary.startsWith("<")) {
+      return e.summary;
+    }
+  }
   return undefined;
 };
 
@@ -265,7 +273,7 @@ const openAttention = (events: AgentEvent[]): AttentionView[] => {
 const stationFor = (state: ActorView["state"], activity: ActivityView | undefined): Station => {
   if (state === "waiting_user") return "boss_desk"; // spec: waiting on the user → boss desk
   if (activity && (state === "working" || state === "thinking" || state === "blocked")) {
-    return STATION[activity.category];
+    return STATION_BY_CATEGORY[activity.category];
   }
   return "lounge"; // no current signal (spec: no signal → lounge)
 };

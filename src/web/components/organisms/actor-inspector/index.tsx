@@ -7,7 +7,8 @@ import type { ActivityView, ActorView, AttentionView, ReceiptView } from "#contr
 
 import { AttentionItemCard } from "@/components/molecules/attention-item";
 import { ReceiptDelivery } from "@/components/molecules/receipt-delivery";
-import { CONFIDENCE_META, STATE_META, STATION_POS } from "@/lib/world-meta";
+import { useEscapeClose } from "@/lib/use-escape-close";
+import { CONFIDENCE_META, STATE_META, STATION_LABEL } from "@/lib/world-meta";
 
 import styles from "./styles.module.css";
 
@@ -37,22 +38,16 @@ export const ActorInspector: FC<Props> = ({
   onClose,
 }) => {
   const closeRef = useRef<HTMLButtonElement>(null);
+  // Mounted only while open, so it is always the top-most overlay Escape should close.
+  useEscapeClose(true, onClose);
   const state = STATE_META[actor.state];
   const confidence = CONFIDENCE_META[actor.stateConfidence];
-  const station = STATION_POS.get(actor.station)?.label ?? actor.station;
+  const station = STATION_LABEL[actor.station];
   const actorNames = new Map([actor, ...(parent ? [parent] : [])].map((a) => [a.id, a.displayName]));
 
   useEffect(() => {
     closeRef.current?.focus();
   }, [actor.id]);
-
-  useEffect(() => {
-    const handleKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
-    };
-    document.addEventListener("keydown", handleKey);
-    return () => document.removeEventListener("keydown", handleKey);
-  }, [onClose]);
 
   return (
     <aside className={styles.panel} aria-label={`Inspector: ${actor.displayName}`}>

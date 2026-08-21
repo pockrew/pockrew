@@ -14,17 +14,23 @@ import type { ActorView, ProjectView, WorldState } from "#contracts/world.js";
 
 import { ActorInspector } from "@/components/organisms/actor-inspector";
 import { District } from "@/components/organisms/district";
-import { isResting } from "@/lib/district-layout";
+import { isOpenAttention } from "@/lib/attention";
+import { isResting, layoutDistrict, type DistrictLayout } from "@/lib/district-layout";
 import {
   clampCamera,
   focusCamera,
   layoutDistricts,
+  mostRelevantProjectId,
   nearProjectIds,
+  widestTown,
   type Camera,
   type DistrictPlacement,
 } from "@/lib/world-layout";
 
 import styles from "./styles.module.css";
+
+/** One town: its project, the actors standing in it, and the layout both the canvas and the mirror read. */
+type Town = { project: ProjectView; actors: ActorView[]; layout: DistrictLayout };
 
 /** One arrow-key press of travel. */
 const PAN_STEP = 96;
@@ -46,21 +52,25 @@ const ARROW_PAN: Record<string, readonly [number, number]> = {
  * district has folded away, and how many stale projects are off the plane entirely.
  */
 const WorldListMirror: FC<{
-  projects: ProjectView[];
-  actors: ActorView[];
+  towns: Town[];
   hiddenCount: number;
-}> = ({ projects, actors, hiddenCount }) => (
+  openAttention: number;
+  deliveries: number;
+}> = ({ towns, hiddenCount, openAttention, deliveries }) => (
   <div className="visually-hidden" role="region" aria-label="World overview">
+    <p>
+      {openAttention} open attention {openAttention === 1 ? "item" : "items"} in the tracker, {deliveries} recent{" "}
+      {deliveries === 1 ? "delivery" : "deliveries"} in the warehouse.
+    </p>
     <ul>
-      {projects.map((project) => {
-        const own = actors.filter((a) => a.projectId === project.id);
-        return (
-          <li key={project.id}>
-            {project.displayName}: {own.length} agents, {own.filter(isResting).length} resting,{" "}
-            {project.openAttentionCount} needing you, {project.verifiedReceiptCount} verified deliveries
-          </li>
-        );
-      })}
+      {towns.map(({ project, actors, layout }) => (
+        <li key={project.id}>
+          {project.displayName}: {actors.length} agents, {actors.filter(isResting).length} resting,{" "}
+          {project.openAttentionCount} needing you, {project.verifiedReceiptCount} verified deliveries. Stations built:{" "}
+          {/* Read straight off the layout the canvas renders, so the two can never drift apart. */}
+          {layout.stations.map((s) => s.label).join(", ")}
+        </li>
+      ))}
     </ul>
     <p>
       {hiddenCount === 0
@@ -76,9 +86,19 @@ const WorldListMirror: FC<{
  * moves on a user gesture or towards the element that just took focus — nothing in a snapshot pans
  * it (docs/spec.md "Accessibility": "never auto-pan away from keyboard focus").
  */
-export const World: FC<{ world: WorldState }> = ({ world }) => {
+export const World: FC<{ world: WorldState; onInspect?: (open: boolean) => void }> = ({ world, onInspect }) => {
   const viewportRef = useRef<HTMLDivElement>(null);
   const planeRef = useRef<HTMLDivElement>(null);
+  /** The one-shot camera placement on the first snapshot. */
+  const openedRef = useRef(false);
+  /**
+   * When this tab started watching. A character whose `startedAt` is later than this really did turn
+   * up in front of the user and gets the walk out of HQ; the crew that was already there on the first
+   * snapshot must never be animated in, or every reload would parade the whole town.
+   */
+  const watchingSinceRef = useRef(world.generatedAt);
+  /** Set by every user camera move. Once true, nothing in the data may place the camera. */
+  const movedRef = useRef(false);
   const dragRef = useRef<{
     pointerId: number;
     x: number;
@@ -95,9 +115,35 @@ export const World: FC<{ world: WorldState }> = ({ world }) => {
   // Only districts with something alive or recent take a spot; the rest stay in data only.
   const near = useMemo(() => nearProjectIds(world), [world]);
   const projects = useMemo(() => world.projects.filter((p) => near.has(p.id)), [world.projects, near]);
-  const plane = useMemo(() => layoutDistricts(projects), [projects]);
+  // One layout per town, built here so the plane can pace its grid by the widest one and the list
+  // mirror can announce exactly what the canvas draws.
+  const towns = useMemo<Town[]>(
+    () =>
+      projects.map((project) => {
+        const own = world.actors.filter((a) => a.projectId === project.id);
+        return {
+          project,
+          actors: own,
+          layout: layoutDistrict({
+            project,
+            actors: own,
+            activities: world.activities.filter((a) => a.projectId === project.id),
+            now: world.generatedAt,
+            expanded: idleExpanded[project.id] ?? false,
+          }),
+        };
+      }),
+    [projects, world.actors, world.activities, world.generatedAt, idleExpanded],
+  );
+  const plane = useMemo(
+    () => layoutDistricts(projects, widestTown(towns.map((t) => t.layout.side))),
+    [projects, towns],
+  );
   const panBy = useCallback(
     (dx: number, dy: number) => {
+      // A zero step is the resize re-clamp, not a gesture; only real travel counts as the user
+      // taking the camera.
+      if (dx !== 0 || dy !== 0) movedRef.current = true;
       const el = viewportRef.current;
       const w = el?.clientWidth ?? 0;
       const h = el?.clientHeight ?? 0;
@@ -121,6 +167,7 @@ export const World: FC<{ world: WorldState }> = ({ world }) => {
   };
 
   const travelTo = (placement: DistrictPlacement) => {
+    movedRef.current = true;
     const el = viewportRef.current;
     setCamera({
       ...focusCamera(placement, plane, el?.clientWidth ?? 0, el?.clientHeight ?? 0),
@@ -151,8 +198,14 @@ export const World: FC<{ world: WorldState }> = ({ world }) => {
     if (!pannedRef.current) {
       // Captured only once the press became a pan: a plain click still reaches the chip or
       // nameplate underneath, while a fast drag that leaves the viewport keeps panning.
-      event.currentTarget.setPointerCapture(event.pointerId);
+      try {
+        event.currentTarget.setPointerCapture(event.pointerId);
+      } catch {
+        // The pointer was already released before this move was dispatched. Panning still works
+        // without capture, so a lost capture must never abort the gesture.
+      }
       pannedRef.current = true;
+      movedRef.current = true;
     }
     const el = viewportRef.current;
     const next = clampCamera(drag.camX - dx, drag.camY - dy, plane, el?.clientWidth ?? 0, el?.clientHeight ?? 0);
@@ -207,6 +260,30 @@ export const World: FC<{ world: WorldState }> = ({ world }) => {
   const handleCloseInspector = () => setSelectedId(null);
 
   useEffect(() => {
+    onInspect?.(selectedId !== null);
+  }, [selectedId, onInspect]);
+
+  useEffect(() => {
+    // First snapshot only: start the camera on the district that most wants the user. Later
+    // patches never move it, and focus is never taken — only the camera moves.
+    if (openedRef.current) return;
+    // Armed on the first snapshot even when it placed no district: a world whose bases are all
+    // stale must not arm late and then pan on a later data event (docs/spec.md: no surprise
+    // auto-pan). And once the user has taken the camera, the opening shot is simply skipped.
+    openedRef.current = true;
+    if (movedRef.current || projects.length === 0) return;
+    const target = mostRelevantProjectId(
+      world,
+      projects.map((p) => p.id),
+    );
+    const index = projects.findIndex((p) => p.id === target);
+    const placement = plane.placements[index === -1 ? 0 : index];
+    if (!placement) return;
+    const el = viewportRef.current;
+    setCamera({ ...focusCamera(placement, plane, el?.clientWidth ?? 0, el?.clientHeight ?? 0), smooth: false });
+  }, [projects, plane, world]);
+
+  useEffect(() => {
     const el = viewportRef.current;
     if (!el) return;
     // Registered by hand and non-passive: a trackpad pan must move the world, not the page.
@@ -251,17 +328,18 @@ export const World: FC<{ world: WorldState }> = ({ world }) => {
             } as CSSProperties
           }
         >
-          {projects.map((project, index) => {
+          {towns.map(({ project, actors, layout }, index) => {
             // layoutDistricts places one district per visible project, in order.
             const placement = plane.placements[index]!;
             return (
               <District
                 key={project.id}
                 project={project}
-                actors={world.actors.filter((a) => a.projectId === project.id)}
+                layout={layout}
+                actorCount={actors.length}
                 byId={byId}
                 placement={placement}
-                idleExpanded={idleExpanded[project.id] ?? false}
+                spawnedSince={watchingSinceRef.current}
                 {...(selectedId ? { selectedActorId: selectedId } : {})}
                 onEnter={() => handleEnterDistrict(placement)}
                 onFocusEnter={() => handleFocusDistrict(placement)}
@@ -278,18 +356,17 @@ export const World: FC<{ world: WorldState }> = ({ world }) => {
           {...(selectedParent ? { parent: selectedParent } : {})}
           {...(selectedActivity ? { activity: selectedActivity } : {})}
           receipts={world.recentReceipts.filter((r) => r.actorId === selected.id)}
-          attention={world.attention.filter(
-            (i) => i.actorIds.includes(selected.id) && (i.status === "open" || i.status === "acknowledged"),
-          )}
+          attention={world.attention.filter((i) => i.actorIds.includes(selected.id) && isOpenAttention(i))}
           projectName={projectNames.get(selected.projectId) ?? selected.projectId}
           now={world.generatedAt}
           onClose={handleCloseInspector}
         />
       ) : null}
       <WorldListMirror
-        projects={projects}
-        actors={world.actors}
+        towns={towns}
         hiddenCount={world.projects.length - projects.length}
+        openAttention={world.attention.filter(isOpenAttention).length}
+        deliveries={world.recentReceipts.length}
       />
     </div>
   );

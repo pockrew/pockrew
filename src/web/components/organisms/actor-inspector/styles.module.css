@@ -4,7 +4,7 @@
   left: 0;
   right: 0;
   bottom: 0;
-  z-index: 2;
+  z-index: var(--z-inspector);
   max-height: 62vh;
   overflow-y: auto;
   padding: var(--space-3) var(--space-4) var(--space-6);
@@ -21,15 +21,18 @@
   }
 }
 
+/*
+ * Wide screens: docked bottom-right, under the quest tracker rather than behind it — both stay
+ * visible, and the inspector still wins the stack (--z-inspector) if a tall tracker reaches it.
+ */
 @media (min-width: 60rem) {
   .panel {
-    position: absolute;
     left: auto;
-    top: var(--space-2);
-    right: var(--space-2);
-    bottom: var(--space-2);
-    width: 340px;
-    max-height: none;
+    top: auto;
+    right: var(--hud-gap);
+    bottom: var(--hud-gap);
+    width: var(--hud-panel-w);
+    max-height: min(70vh, 40rem);
     border: 1px solid var(--border);
     border-radius: var(--radius-lg);
     animation-name: none;

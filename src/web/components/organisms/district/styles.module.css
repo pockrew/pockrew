@@ -4,9 +4,6 @@
   top: 0;
   /* Sizes come from DISTRICT_SIZE / STAGE_SIZE via inline custom properties. */
   width: var(--district-w);
-  background: var(--surface-raised);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
   padding: var(--space-3);
   transform: translate(var(--district-x), var(--district-y));
 }
@@ -42,20 +39,31 @@
   font-size: 0.85rem;
 }
 
+/* The plate replaces the flat card: the base stands on ground art instead of a rounded rect. */
 .stage {
   position: relative;
   width: var(--stage-w);
   height: var(--stage-h);
+  background: var(--plate-art) center / 100% 100% no-repeat;
 }
 
-/* Relationship layer, under the chips: who spawned whom. */
-.links {
+/* Roads and relationship links, under the buildings and chips. */
+.paths {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
   overflow: visible;
   pointer-events: none;
+}
+
+/* Streets: every station is joined to the HQ anchor as the town grows. */
+.road {
+  fill: none;
+  stroke: color-mix(in srgb, var(--ink-muted) 40%, transparent);
+  stroke-width: 14;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .link {

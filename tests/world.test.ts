@@ -170,6 +170,40 @@ describe("assembleWorld: actor display names come from real prompts, never inven
   });
 });
 
+describe("assembleWorld: a main actor's name skips system-injected prompts", () => {
+  const build = (kind: AgentEvent["kind"], occurredAt: number, rest: Partial<AgentEvent> = {}): AgentEvent => ({
+    id: `a:${kind}:${occurredAt}`,
+    dedupeKey: `a:${kind}:${occurredAt}`,
+    occurredAt,
+    observedAt: occurredAt,
+    source: "claude",
+    confidence: "observed",
+    projectId: "/tmp/proj",
+    sessionId: "a",
+    actorId: "a",
+    kind,
+    ...rest,
+  });
+
+  it("skips a tag-like first prompt and names the actor from the first real one", () => {
+    const events = [
+      build("prompt_submitted", 1_000, { summary: "<task-notification> <task-id>a4732b2ddc7d1df44</task-id>" }),
+      build("prompt_submitted", 2_000, { summary: "fix the bug" }),
+    ];
+    const world = assembleWorld(events, 3_000, coverage);
+    expect(world.actors[0]?.displayName).toBe("fix the bug");
+  });
+
+  it("falls back to source+id when every prompt is tag-like", () => {
+    const events = [
+      build("prompt_submitted", 1_000, { summary: "<task-notification> …" }),
+      build("prompt_submitted", 2_000, { summary: "<system-reminder> …" }),
+    ];
+    const world = assembleWorld(events, 3_000, coverage);
+    expect(world.actors[0]?.displayName).toBe("Claude a");
+  });
+});
+
 describe("assembleWorld: subagent naming never guesses across an ambiguous spawn window", () => {
   const build = (
     actorId: string,

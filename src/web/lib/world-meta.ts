@@ -28,23 +28,36 @@ import type { IconSvgElement } from "@hugeicons/react";
 import type { AttentionType } from "#contracts/attention.js";
 import type { Confidence, SourceId } from "#contracts/events.js";
 import type { ReceiptKind } from "#contracts/receipts.js";
-import type { ActorState, Station } from "#contracts/world.js";
+import type { ActivityCategory, ActorState, Station } from "#contracts/world.js";
 
-/** One station plot. The single source of truth for the size: CSS reads it back as a variable. */
-export const STATION_SIZE = { width: 192, height: 128 };
+/** How recent a signal has to be to still count as part of the world. */
+export const RECENT_WINDOW_MS = 30 * 60_000;
 
-/** Fixed stage coordinates per station; actors translate to these. */
-export const STATIONS: Array<{ id: Station; label: string; x: number; y: number }> = [
-  { id: "library", label: "Library", x: 8, y: 8 },
-  { id: "workshop", label: "Workshop", x: 212, y: 8 },
-  { id: "lab", label: "Lab", x: 416, y: 8 },
-  { id: "review", label: "Review", x: 8, y: 148 },
-  { id: "hq", label: "HQ", x: 212, y: 148 },
-  { id: "boss_desk", label: "Boss desk", x: 416, y: 148 },
-  { id: "lounge", label: "Lounge", x: 212, y: 288 },
-];
+/**
+ * Station names. Positions are NOT here: a district only builds the stations it has a signal for,
+ * and where each one stands is seeded per district in lib/district-layout.
+ */
+export const STATION_LABEL: Record<Station, string> = {
+  hq: "HQ",
+  library: "Library",
+  workshop: "Workshop",
+  lab: "Lab",
+  review: "Review",
+  boss_desk: "Boss desk",
+  lounge: "Lounge",
+};
 
-export const STATION_POS = new Map(STATIONS.map((s) => [s.id, s]));
+/** Placement order. HQ first: it is the anchor every town starts with and roads lead to it. */
+export const STATION_ORDER: Station[] = ["hq", "library", "workshop", "lab", "review", "boss_desk", "lounge"];
+
+/** Activity category to station (docs/spec.md "World mapping"). */
+export const STATION_BY_CATEGORY: Record<ActivityCategory, Station> = {
+  research: "library",
+  code: "workshop",
+  terminal: "lab",
+  review: "review",
+  coordination: "hq",
+};
 
 /** State is always icon + label + colour, never colour alone. */
 export const STATE_META: Record<ActorState, { icon: IconSvgElement; label: string }> = {

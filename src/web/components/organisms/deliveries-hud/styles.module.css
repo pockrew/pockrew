@@ -1,0 +1,84 @@
+/* Launcher: bottom-left, in thumb reach on a phone. */
+.launcher {
+  position: fixed;
+  bottom: var(--hud-gap);
+  left: var(--hud-gap);
+  z-index: var(--z-hud);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-1);
+  background: var(--surface-raised);
+  color: var(--ink);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+  box-shadow: 0 2px 12px rgb(0 0 0 / 14%);
+}
+
+.art {
+  width: 32px;
+  height: 32px;
+  object-fit: contain;
+}
+
+/* Tinted surface with ink text: white on the green token misses 4.5:1. */
+.count {
+  min-width: 1.5rem;
+  padding: 0 var(--space-1);
+  background: color-mix(in srgb, var(--state-completed) 22%, var(--surface-raised));
+  color: var(--ink);
+  border: 1px solid var(--state-completed);
+  border-radius: var(--radius-sm);
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-align: center;
+}
+
+/* Mobile-first: a bottom sheet. Wide screens dock it above its own launcher. */
+.panel {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: var(--z-overlay);
+  max-height: 62vh;
+  overflow-y: auto;
+  padding: var(--space-3) var(--space-4) var(--space-6);
+  background: var(--surface-raised);
+  border-top: 1px solid var(--border);
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  box-shadow: 0 -4px 24px rgb(0 0 0 / 18%);
+  animation: sheet-in var(--dur-fast) var(--ease-move);
+}
+
+@keyframes sheet-in {
+  from {
+    transform: translateY(100%);
+  }
+}
+
+@media (min-width: 60rem) {
+  .panel {
+    right: auto;
+    left: var(--hud-gap);
+    bottom: calc(var(--hud-gap) + 3.5rem);
+    width: var(--hud-panel-w);
+    max-height: min(60vh, 32rem);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    animation-name: none;
+  }
+}
+
+.close {
+  float: right;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface-sunken);
+  color: var(--ink);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}

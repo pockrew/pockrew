@@ -1,6 +1,11 @@
-/* Positioning context for the docked inspector on wide screens. */
+/*
+ * The world is the page: it fills the shell and the HUD floats above it. Deliberately no
+ * z-index here — that would open a stacking context and trap the inspector this component
+ * renders below the HUD panels it must be able to cover.
+ */
 .world {
-  position: relative;
+  position: absolute;
+  inset: 0;
 }
 
 /*
@@ -9,13 +14,11 @@
  * bleeding into the document.
  */
 .viewport {
-  position: relative;
+  position: absolute;
+  inset: 0;
+  z-index: var(--z-world);
   overflow: hidden;
-  height: 62vh;
-  min-height: 320px;
   background: var(--surface-sunken);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
   touch-action: none;
   overscroll-behavior: contain;
   cursor: grab;
@@ -23,12 +26,6 @@
 
 .viewport:active {
   cursor: grabbing;
-}
-
-@media (min-width: 60rem) {
-  .viewport {
-    height: 78vh;
-  }
 }
 
 /* The plane is larger than the camera on purpose: travel is the point. */

@@ -222,7 +222,9 @@ Migrations are transactional, with a backup before anything destructive. Default
 for events and file touches, except that nothing between `lastSeenAt` and now is cleaned up until
 the user has opened the matching Shift Report. Lifetime milestone counters are independent of event
 retention — cleaning history never makes the company lose a level. Cleanup never removes open
-attention. The world rebuilds from the DB plus live sources; coordinates are not persisted.
+attention. The world rebuilds from the DB plus live sources. Station cells persist per project
+(`town_layout` table, owner-approved 2026-08-21) so a town keeps its shape across reopens; actor
+coordinates are never persisted.
 
 ## Source coverage
 

@@ -1,13 +1,21 @@
+/* HUD chip, top-left over the world. Read-only, so it never takes the pan gesture. */
 .badge {
+  position: fixed;
+  top: var(--hud-gap);
+  left: var(--hud-gap);
+  z-index: var(--z-hud);
   display: inline-flex;
   align-items: center;
   gap: var(--space-1);
-  margin: 0 0 var(--space-2);
+  margin: 0;
   padding: var(--space-1) var(--space-2);
-  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--surface-raised) 86%, transparent);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
   font-size: 0.8rem;
   font-weight: 600;
   color: var(--badge-color, var(--ink-muted));
+  pointer-events: none;
 }
 
 .badge[data-connection="connecting"] {

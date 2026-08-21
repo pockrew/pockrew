@@ -5,18 +5,22 @@ import type { ActorView, ProjectView } from "#contracts/world.js";
 import { ActorChip } from "@/components/atoms/actor-chip";
 import { IdleCluster } from "@/components/atoms/idle-cluster";
 import { StationSlot } from "@/components/atoms/station-slot";
-import { layoutDistrict } from "@/lib/district-layout";
-import { DISTRICT_SIZE, STAGE_SIZE, type DistrictPlacement } from "@/lib/world-layout";
-import { STATIONS } from "@/lib/world-meta";
+import { CELL_SIZE, type DistrictLayout } from "@/lib/district-layout";
+import { isArrival } from "@/lib/travel-state";
+import { DISTRICT_PLATE_ART } from "@/lib/world-art";
+import { districtSize, type DistrictPlacement } from "@/lib/world-layout";
 
 import styles from "./styles.module.css";
 
 type Props = {
   project: ProjectView;
-  actors: ActorView[];
+  /** Built by the world, so the plane can pace itself by the widest town it holds. */
+  layout: DistrictLayout;
+  actorCount: number;
   byId: ReadonlyMap<string, ActorView>;
   placement: DistrictPlacement;
-  idleExpanded: boolean;
+  /** generatedAt of the first snapshot this tab saw — anything started after it really did arrive. */
+  spawnedSince: number;
   selectedActorId?: string;
   onEnter: () => void;
   onFocusEnter: () => void;
@@ -24,27 +28,32 @@ type Props = {
   onSelectActor: (actor: ActorView) => void;
 };
 
-/** One base on the world plane: a nameplate you click to travel to it, plus its stations. */
+/** One base on the world plane: a nameplate you click to travel to it, plus the town it has built. */
 export const District: FC<Props> = ({
   project,
-  actors,
+  layout,
+  actorCount,
   byId,
   placement,
-  idleExpanded,
+  spawnedSince,
   selectedActorId,
   onEnter,
   onFocusEnter,
   onToggleIdle,
   onSelectActor,
 }) => {
-  const layout = layoutDistrict(actors, idleExpanded);
-  // Every pixel size comes from the layout constants; the stylesheet only reads them back.
+  // Every pixel size comes from the layout; the stylesheet only reads them back. The plate is
+  // exactly this town's grid, so the base covers its town and no more.
   const box = {
     "--district-x": `${placement.x}px`,
     "--district-y": `${placement.y}px`,
-    "--district-w": `${DISTRICT_SIZE.width}px`,
-    "--stage-w": `${STAGE_SIZE.width}px`,
-    "--stage-h": `${STAGE_SIZE.height}px`,
+    "--district-w": `${districtSize(layout.side).width}px`,
+    "--stage-w": `${layout.plate.width}px`,
+    "--stage-h": `${layout.plate.height}px`,
+    "--cell-w": `${CELL_SIZE.width}px`,
+    "--cell-h": `${CELL_SIZE.height}px`,
+    // The ground the base is built on. Decoration, so it stays a CSS background.
+    "--plate-art": `url(${DISTRICT_PLATE_ART})`,
   } as CSSProperties;
   return (
     <section className={styles.district} style={box} aria-label={`District ${project.displayName}`} onClick={onEnter}>
@@ -57,15 +66,17 @@ export const District: FC<Props> = ({
           </button>
         </h2>
         <p className={styles.counts}>
-          {actors.length} agents · {project.openAttentionCount} attention · {project.verifiedReceiptCount} verified
+          {actorCount} agents · {project.openAttentionCount} attention · {project.verifiedReceiptCount} verified
         </p>
       </header>
       <div className={styles.stage}>
-        {STATIONS.map((s) => (
-          <StationSlot key={s.id} id={s.id} label={s.label} x={s.x} y={s.y} />
-        ))}
-        {/* Supplementary: the chips already carry icon + label + colour on their own. */}
-        <svg className={styles.links} aria-hidden="true">
+        {/* Roads first: they run under the buildings. Decoration — the town's own street network.
+            Drawn as one stroke per street today; layout.roadCells carries the same streets as
+            cells + connections for the PNG road tiles, which swap in without touching the layout. */}
+        <svg className={styles.paths} aria-hidden="true">
+          {layout.roads.map((road) => (
+            <path key={road.id} className={styles.road} d={road.d} />
+          ))}
           {layout.links.map((link) => (
             <line
               key={link.id}
@@ -77,6 +88,9 @@ export const District: FC<Props> = ({
             />
           ))}
         </svg>
+        {layout.stations.map((s) => (
+          <StationSlot key={s.station} station={s.station} label={s.label} x={s.x} y={s.y} />
+        ))}
         {layout.chips.map((chip) => {
           const parent = chip.actor.parentActorId ? byId.get(chip.actor.parentActorId) : undefined;
           return (
@@ -85,6 +99,8 @@ export const District: FC<Props> = ({
               {...chip}
               {...(parent ? { parent } : {})}
               selected={chip.actor.id === selectedActorId}
+              spawned={isArrival(chip.actor, spawnedSince)}
+              routeFrom={layout.travelPath}
               onSelect={() => onSelectActor(chip.actor)}
             />
           );

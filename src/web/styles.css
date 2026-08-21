@@ -57,6 +57,17 @@
   /* Minimum interactive target */
   --target-min: 40px;
 
+  /*
+   * HUD. The world is the whole page; everything else floats over it like a game HUD, so all
+   * stacking and inset values live here — no component invents its own z-index.
+   */
+  --hud-gap: var(--space-3);
+  --hud-panel-w: 360px;
+  --z-world: 0;
+  --z-hud: 10;
+  --z-overlay: 20;
+  --z-inspector: 30;
+
   /* Motion. Reduced-motion collapses these to 0ms; nothing else needs to know. */
   --dur-instant: 90ms;
   --dur-fast: 160ms;
@@ -97,6 +108,13 @@
   box-sizing: border-box;
 }
 
+/* The world fills the browser viewport; the document itself never scrolls. */
+html,
+body {
+  height: 100%;
+  overflow: hidden;
+}
+
 body {
   margin: 0;
   background: var(--surface);
@@ -122,32 +140,19 @@ a[href] {
   min-width: var(--target-min);
 }
 
-/* App shell: mobile stacks the map over the drawer; wide screens put the drawer on the right. */
+/*
+ * App shell: one full-viewport world with the HUD floating over it. Nothing stacks in document
+ * flow, so the camera never moves because a panel opened somewhere else on the page.
+ */
 .app {
-  display: flex;
-  flex-direction: column;
-  min-height: 100vh;
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
 }
 
-/* The map is a camera onto a bigger plane, so the shell never scrolls sideways to reach a base. */
-.app-main {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-  padding: var(--space-2);
-}
-
-@media (min-width: 60rem) {
-  .app {
-    flex-direction: row;
-    align-items: stretch;
-  }
-}
-
+/* The connection chip is fixed at the top-left, so this view starts below it. */
 .app-connecting {
-  padding: var(--space-4);
+  padding: calc(var(--hud-gap) + 2.5rem) var(--space-4) var(--space-4);
   color: var(--ink-muted);
 }
 

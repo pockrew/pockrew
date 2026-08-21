@@ -2,14 +2,19 @@ import { DatabaseSync } from "node:sqlite";
 
 import type { AgentEvent } from "#contracts/events.js";
 import type { WorkReceipt } from "#contracts/receipts.js";
+import type { Station, StationCell } from "#contracts/world.js";
+import type { WorldCell } from "#core/town.js";
 
 export const openStore = (dbPath: string) => {
   const db = new DatabaseSync(dbPath);
   db.exec("PRAGMA journal_mode = WAL");
   db.exec("PRAGMA busy_timeout = 5000"); // wait up to 5s on a lock before throwing SQLITE_BUSY
 
-  const version = db.prepare("PRAGMA user_version").get()?.user_version;
-  if (version === 0) {
+  // Migrations are transactional and additive-only so far (spec "Persistence") — no backup step
+  // yet because nothing here is destructive; add one before the first migration that drops or
+  // rewrites a column.
+  const version = Number(db.prepare("PRAGMA user_version").get()?.user_version ?? 0);
+  if (version < 1) {
     db.exec("BEGIN");
     try {
       db.exec(`
@@ -44,6 +49,33 @@ export const openStore = (dbPath: string) => {
       throw error;
     }
   }
+  if (version < 2) {
+    db.exec("BEGIN");
+    try {
+      db.exec(`
+        CREATE TABLE town_layout (
+          project_id TEXT NOT NULL,
+          station TEXT NOT NULL,
+          cell_x INTEGER NOT NULL,
+          cell_y INTEGER NOT NULL,
+          placed_at INTEGER NOT NULL,
+          PRIMARY KEY (project_id, station)
+        );
+        CREATE TABLE world_layout (
+          project_id TEXT PRIMARY KEY,
+          cell_x INTEGER NOT NULL,
+          cell_y INTEGER NOT NULL,
+          placed_at INTEGER NOT NULL
+        );
+        PRAGMA user_version = 2;
+      `);
+      db.exec("COMMIT");
+    } catch (error) {
+      db.exec("ROLLBACK");
+      db.close();
+      throw error;
+    }
+  }
 
   const insertEventStatement = db.prepare(`
     INSERT OR IGNORE INTO events
@@ -65,6 +97,15 @@ export const openStore = (dbPath: string) => {
     INSERT INTO app_state (key, value) VALUES (?, ?)
     ON CONFLICT (key) DO UPDATE SET value = excluded.value
   `);
+  const insertStationStatement = db.prepare(`
+    INSERT OR IGNORE INTO town_layout (project_id, station, cell_x, cell_y, placed_at)
+    VALUES (?, ?, ?, ?, ?)
+  `);
+  const insertWorldCellStatement = db.prepare(`
+    INSERT OR IGNORE INTO world_layout (project_id, cell_x, cell_y, placed_at)
+    VALUES (?, ?, ?, ?)
+  `);
+  const getWorldLayoutStatement = db.prepare("SELECT project_id, cell_x, cell_y FROM world_layout ORDER BY project_id");
 
   return {
     insertEvent: (event: AgentEvent): boolean =>
@@ -101,6 +142,40 @@ export const openStore = (dbPath: string) => {
     getAppState: (key: string): string | undefined => getAppStateStatement.get(key)?.value as string | undefined,
     setAppState: (key: string, value: string): void => {
       setAppStateStatement.run(key, value);
+    },
+    // One query for every project in the rebuild, never one per project (rules/server.md: no N+1).
+    getTownLayouts: (projectIds: string[]): Map<string, StationCell[]> => {
+      const byProject = new Map<string, StationCell[]>();
+      if (projectIds.length === 0) return byProject;
+      const placeholders = projectIds.map(() => "?").join(", ");
+      const rows = db
+        .prepare(
+          `SELECT project_id, station, cell_x, cell_y FROM town_layout
+           WHERE project_id IN (${placeholders}) ORDER BY project_id, station`,
+        )
+        .all(...projectIds) as Array<{ project_id: string; station: string; cell_x: number; cell_y: number }>;
+      for (const row of rows) {
+        const cells = byProject.get(row.project_id) ?? [];
+        cells.push({ station: row.station as Station, x: row.cell_x, y: row.cell_y });
+        byProject.set(row.project_id, cells);
+      }
+      return byProject;
+    },
+    // A station is placed once and never moved by code — INSERT OR IGNORE only, no UPDATE path.
+    placeStations: (
+      rows: Array<{ projectId: string; station: Station; x: number; y: number; placedAt: number }>,
+    ): void => {
+      for (const row of rows) insertStationStatement.run(row.projectId, row.station, row.x, row.y, row.placedAt);
+    },
+    getWorldLayout: (): WorldCell[] =>
+      (getWorldLayoutStatement.all() as Array<{ project_id: string; cell_x: number; cell_y: number }>).map((row) => ({
+        projectId: row.project_id,
+        x: row.cell_x,
+        y: row.cell_y,
+      })),
+    // A town is placed once and never moved by code — INSERT OR IGNORE only, no UPDATE path.
+    placeWorldCells: (rows: Array<{ projectId: string; x: number; y: number; placedAt: number }>): void => {
+      for (const row of rows) insertWorldCellStatement.run(row.projectId, row.x, row.y, row.placedAt);
     },
     close: (): void => db.close(),
   };

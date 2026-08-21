@@ -8,9 +8,10 @@ import { streamSSE } from "hono/streaming";
 
 import type { AgentEvent } from "#contracts/events.js";
 import type { StreamMessage, WorldPatchOp } from "#contracts/stream.js";
-import type { WorldState } from "#contracts/world.js";
+import type { Station, StationCell, WorldState } from "#contracts/world.js";
 import type { Store } from "#core/store/store.js";
-import { assembleWorld } from "#core/world.js";
+import { assignCells, assignWorldCells } from "#core/town.js";
+import { assembleWorld, STATION_BY_CATEGORY } from "#core/world.js";
 
 /** Spec: a ticket is valid for 30 seconds and for one connection. */
 const TICKET_TTL_MS = 30_000;
@@ -44,6 +45,82 @@ const diffOps = (before: WorldState | undefined, after: WorldState): WorldPatchO
     .filter((key) => before === undefined || JSON.stringify(before[key]) !== JSON.stringify(after[key]))
     .map((key) => patchOp(key, after));
 
+/**
+ * HQ, plus every station a currently-known actor stands at OR a recorded activity implies — the
+ * set that can *need* a new cell this rebuild. `world.activities` matters on its own: an actor's
+ * own `.station` only reflects a category while that activity is still running (stationFor), so
+ * an activity that has since completed and let its actor decay to idle/lounge would otherwise
+ * never get a station persisted unless a client happened to be connected while it ran — exactly
+ * the gap persistence exists to close. Already-persisted stations are never filtered by this: see
+ * attachLayout.
+ */
+const activeStationsFor = (world: WorldState, projectId: string): Station[] => {
+  const stations = new Set<Station>(["hq"]);
+  for (const actor of world.actors) if (actor.projectId === projectId) stations.add(actor.station);
+  for (const activity of world.activities) {
+    if (activity.projectId === projectId) stations.add(STATION_BY_CATEGORY[activity.category]);
+  }
+  return [...stations];
+};
+
+/** Runs a store write; on failure (e.g. SQLITE_BUSY) logs and returns false instead of throwing
+ *  into the stream — a snapshot/broadcast must never die because a layout INSERT couldn't land. */
+const tryPersist = (write: () => void, what: string): boolean => {
+  try {
+    write();
+    return true;
+  } catch (err) {
+    console.error(`stream: persisting new ${what} failed — ${err instanceof Error ? err.message : String(err)}`);
+    return false;
+  }
+};
+
+/**
+ * Attaches the persisted town/world layout to a freshly assembled world (IO lives here, not in
+ * core/world.ts — that module stays pure). Built stations are permanent (spec "Persistence"):
+ * `stationCells` always carries every row town_layout has ever recorded for a project, never
+ * filtered by current activity — only *which new stations to assign* this rebuild comes from
+ * what is active right now. One batch query for every project's layout, one for the whole
+ * world_layout table, never one query per project (rules/server.md: no N+1). A failed write falls
+ * back to the read-only (already-durable) layout rather than claiming an unsaved cell is stable.
+ */
+export const attachLayout = (world: WorldState, store: Store, now: number): WorldState => {
+  const projectIds = world.projects.map((p) => p.id);
+  const townLayouts = store.getTownLayouts(projectIds);
+  const worldLayout = store.getWorldLayout();
+
+  const newStationRows: Array<{ projectId: string; station: Station; x: number; y: number; placedAt: number }> = [];
+  const createdByProject = new Map<string, StationCell[]>();
+  for (const project of world.projects) {
+    const persisted = townLayouts.get(project.id) ?? [];
+    const created = assignCells(persisted, activeStationsFor(world, project.id), project.id);
+    createdByProject.set(project.id, created);
+    for (const cell of created) newStationRows.push({ projectId: project.id, ...cell, placedAt: now });
+  }
+  const stationsSaved =
+    newStationRows.length === 0 || tryPersist(() => store.placeStations(newStationRows), "stations");
+
+  const newWorldCells = assignWorldCells(worldLayout, projectIds);
+  const worldSaved =
+    newWorldCells.length === 0 ||
+    tryPersist(() => store.placeWorldCells(newWorldCells.map((c) => ({ ...c, placedAt: now }))), "world cells");
+  const worldByProject = new Map([...worldLayout, ...(worldSaved ? newWorldCells : [])].map((c) => [c.projectId, c]));
+
+  return {
+    ...world,
+    projects: world.projects.map((project) => {
+      const persisted = townLayouts.get(project.id) ?? [];
+      const created = stationsSaved ? (createdByProject.get(project.id) ?? []) : [];
+      const cell = worldByProject.get(project.id);
+      return {
+        ...project,
+        stationCells: [...persisted, ...created],
+        ...(cell ? { worldCell: { x: cell.x, y: cell.y } } : {}),
+      };
+    }),
+  };
+};
+
 export const createStreamHub = (deps: StreamDeps): StreamHub => {
   const tickets = new Map<string, number>(); // ticket → expiresAt
   const clients = new Set<(msg: StreamMessage) => void>();
@@ -72,8 +149,10 @@ export const createStreamHub = (deps: StreamDeps): StreamHub => {
   // listEvents({ sinceOccurredAt }) plus persisted milestone counters when the 750 ms p95 budget
   // bites or retention cleanup lands (spec: lifetime counters survive event cleanup).
   const currentWorld = (): WorldState => {
+    const now = Date.now();
     const events = deps.store.listEvents();
-    return assembleWorld(events, Date.now(), deps.coverage(events));
+    const world = assembleWorld(events, now, deps.coverage(events));
+    return attachLayout(world, deps.store, now);
   };
 
   const routes = new Hono();

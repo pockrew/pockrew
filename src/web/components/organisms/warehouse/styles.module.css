@@ -1,13 +1,20 @@
+/* Flat: the HUD panel that summons this section provides the surface and the chrome. */
 .warehouse {
-  background: var(--surface-sunken);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  padding: var(--space-3);
+  padding: 0;
 }
 
 .title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
   margin: 0 0 var(--space-2);
   font-size: 1.1rem;
+}
+
+.art {
+  width: 48px;
+  height: 48px;
+  object-fit: contain;
 }
 
 .empty {

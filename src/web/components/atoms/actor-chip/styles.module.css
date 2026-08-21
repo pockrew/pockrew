@@ -20,11 +20,6 @@
   transition: transform var(--dur-move) var(--ease-move);
 }
 
-/* A subagent enters by growing out of its parent chip; the offset comes from the layout. */
-.subagent {
-  animation: spawn var(--dur-spawn) var(--ease-move);
-}
-
 @keyframes spawn {
   from {
     transform: translate(calc(var(--chip-x) + var(--spawn-dx)), calc(var(--chip-y) + var(--spawn-dy))) scale(0.5);
@@ -69,6 +64,45 @@
   --chip-color: var(--state-unknown);
 }
 
+/*
+ * Entering the world, main agent and subagent alike: the character pops in on the HQ cell (the
+ * offset back to the anchor comes from the layout) and then walks the road out to its station. Set
+ * only until the chip has walked once, so a later trip cannot pop it in again — and it sits below
+ * the state blocks so an arrival is never swallowed by `celebrate`/`leave`, and above [data-moving]
+ * so a chip with a road to walk plays the walk instead: the walk IS the entrance.
+ */
+.chip[data-entering="true"] {
+  animation: spawn var(--dur-spawn) var(--ease-move);
+}
+
+/*
+ * Walking the road: while moving, position comes from the road path instead of the resting
+ * translate, so the character follows the town's streets rather than cutting across the plate.
+ * Longer routes get a bigger --travel-scale: more time overall, less time per pixel.
+ *
+ * Cascade contract: this block MUST stay below every [data-state] block. They share its specificity
+ * and also set `animation`, so an earlier position would let `completed`/`ended` win the shorthand —
+ * the chip would take the offset-path but never run the walk keyframes and render stuck at the
+ * path's start (its old station). Moving wins; the state animation resumes once the walk settles.
+ */
+.chip[data-moving="true"] {
+  offset-path: var(--road-path);
+  offset-anchor: 0 0;
+  offset-rotate: 0deg;
+  transform: none;
+  animation: walk calc(var(--dur-move) * var(--travel-scale, 1)) var(--ease-move) forwards;
+  z-index: 1;
+}
+
+@keyframes walk {
+  from {
+    offset-distance: 0%;
+  }
+  to {
+    offset-distance: 100%;
+  }
+}
+
 @keyframes celebrate {
   0% {
     box-shadow: 0 0 0 0 var(--state-completed);
@@ -82,14 +116,34 @@
 }
 
 .avatar {
-  width: 20px;
-  height: 20px;
+  width: 24px;
+  height: 24px;
   flex-shrink: 0;
   display: block;
+  object-fit: contain;
 }
 
+/* Long agent names are clipped on the map; the full name lives in the inspector and the
+   accessible name on the button. */
 .name {
+  display: inline-block;
+  max-width: 16ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
   font-weight: 600;
+}
+
+/* Walk bob. Replaced by real walk frames once art-map walkFrames are filled in. */
+.chip[data-moving="true"] .avatar {
+  animation: bob calc(var(--dur-fast) * 2) ease-in-out infinite;
+}
+
+@keyframes bob {
+  50% {
+    transform: translateY(-3px);
+  }
 }
 
 .stateLabel {
@@ -108,8 +162,8 @@
 }
 
 .subagent .avatar {
-  width: 16px;
-  height: 16px;
+  width: 20px;
+  height: 20px;
 }
 
 .parentLink {

@@ -113,12 +113,113 @@ test("persists events, receipts and app state idempotently", () => {
 
   const db = new DatabaseSync(dbPath);
   expect(db.prepare("PRAGMA journal_mode").get()).toMatchObject({ journal_mode: "wal" });
-  expect(db.prepare("PRAGMA user_version").get()).toMatchObject({ user_version: 1 });
+  expect(db.prepare("PRAGMA user_version").get()).toMatchObject({ user_version: 2 });
   expect(
     db
       .prepare("SELECT name FROM sqlite_schema WHERE type = 'table' ORDER BY name")
       .all()
       .map((row) => row.name),
-  ).toEqual(["actors", "app_state", "attention", "events", "file_touches", "milestones", "projects", "receipts"]);
+  ).toEqual([
+    "actors",
+    "app_state",
+    "attention",
+    "events",
+    "file_touches",
+    "milestones",
+    "projects",
+    "receipts",
+    "town_layout",
+    "world_layout",
+  ]);
   db.close();
+});
+
+test("migrates an existing v1 database to v2 in place, keeping its data, then no-ops on reopen", () => {
+  const dbPath = join(dir, "migrate.sqlite");
+  // Hand-build exactly the v1 schema (pre-town_layout/world_layout) with one real row in it —
+  // the shape openStore's very first CREATE TABLE block produced before this migration existed.
+  const v1 = new DatabaseSync(dbPath);
+  v1.exec(`
+    CREATE TABLE projects (id TEXT PRIMARY KEY);
+    CREATE TABLE actors (id TEXT PRIMARY KEY);
+    CREATE TABLE events (
+      dedupeKey TEXT PRIMARY KEY,
+      occurredAt INTEGER NOT NULL,
+      projectId TEXT NOT NULL,
+      sessionId TEXT NOT NULL,
+      actorId TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      json TEXT NOT NULL
+    );
+    CREATE INDEX events_occurred_at_idx ON events (occurredAt);
+    CREATE TABLE receipts (id TEXT PRIMARY KEY, occurredAt INTEGER NOT NULL, json TEXT NOT NULL);
+    CREATE INDEX receipts_occurred_at_idx ON receipts (occurredAt);
+    CREATE TABLE attention (id TEXT PRIMARY KEY);
+    CREATE TABLE file_touches (id TEXT PRIMARY KEY);
+    CREATE TABLE milestones (id TEXT PRIMARY KEY);
+    CREATE TABLE app_state (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+    PRAGMA user_version = 1;
+  `);
+  v1.prepare(
+    "INSERT INTO events (dedupeKey, occurredAt, projectId, sessionId, actorId, kind, json) VALUES (?,?,?,?,?,?,?)",
+  ).run("dedupe-1", 1, "proj-1", "session-1", "actor-1", "session_started", JSON.stringify({ old: "data" }));
+  v1.close();
+
+  const migrated = openStore(dbPath);
+  expect(migrated.listEvents()).toEqual([{ old: "data" }]); // pre-existing row survives untouched
+  migrated.close();
+
+  const check = new DatabaseSync(dbPath);
+  expect(check.prepare("PRAGMA user_version").get()).toMatchObject({ user_version: 2 });
+  expect(
+    check
+      .prepare("SELECT name FROM sqlite_schema WHERE type = 'table' ORDER BY name")
+      .all()
+      .map((row) => row.name),
+  ).toContain("town_layout");
+  check.close();
+
+  // Reopening an already-v2 database must be a no-op: no error, version unchanged.
+  const reopened = openStore(dbPath);
+  expect(reopened.listEvents()).toEqual([{ old: "data" }]);
+  reopened.close();
+  const final = new DatabaseSync(dbPath);
+  expect(final.prepare("PRAGMA user_version").get()).toMatchObject({ user_version: 2 });
+  final.close();
+});
+
+test("persists town and world layout rows idempotently, and never moves a placed cell", () => {
+  const store = openStore(join(dir, "layout.sqlite"));
+
+  store.placeStations([
+    { projectId: "proj-1", station: "hq", x: 0, y: 0, placedAt: 1 },
+    { projectId: "proj-1", station: "library", x: 1, y: 0, placedAt: 2 },
+  ]);
+  // INSERT OR IGNORE: a repeat call, even with a different (x, y), never moves the cell.
+  store.placeStations([{ projectId: "proj-1", station: "hq", x: 9, y: 9, placedAt: 999 }]);
+  expect(store.getTownLayouts(["proj-1"]).get("proj-1")).toEqual([
+    { station: "hq", x: 0, y: 0 },
+    { station: "library", x: 1, y: 0 },
+  ]);
+  expect(store.getTownLayouts(["proj-none"]).has("proj-none")).toBe(false);
+
+  store.placeStations([{ projectId: "proj-2", station: "hq", x: 0, y: 0, placedAt: 3 }]);
+  const batch = store.getTownLayouts(["proj-1", "proj-2", "proj-none"]);
+  expect(batch.get("proj-1")).toEqual([
+    { station: "hq", x: 0, y: 0 },
+    { station: "library", x: 1, y: 0 },
+  ]);
+  expect(batch.get("proj-2")).toEqual([{ station: "hq", x: 0, y: 0 }]);
+  expect(batch.has("proj-none")).toBe(false);
+  expect(store.getTownLayouts([])).toEqual(new Map());
+
+  store.placeWorldCells([{ projectId: "proj-1", x: 0, y: 0, placedAt: 1 }]);
+  store.placeWorldCells([{ projectId: "proj-1", x: 5, y: 5, placedAt: 999 }]); // ignored: already placed
+  store.placeWorldCells([{ projectId: "proj-2", x: 1, y: 0, placedAt: 2 }]);
+  expect(store.getWorldLayout()).toEqual([
+    { projectId: "proj-1", x: 0, y: 0 },
+    { projectId: "proj-2", x: 1, y: 0 },
+  ]);
+
+  store.close();
 });

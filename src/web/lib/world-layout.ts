@@ -1,66 +1,104 @@
 import type { ProjectView, WorldState } from "#contracts/world.js";
 
-import { STATION_SIZE, STATIONS } from "./world-meta";
+import { isOpenAttention } from "./attention";
+import { plateSize } from "./district-layout";
+import { hash, placeCells, type Cell } from "./grid";
+import { RECENT_WINDOW_MS } from "./world-meta";
 
 /**
- * Spatial placement of districts on one large world plane: the camera pans across it, so a base
- * lives at a coordinate instead of at a position in a vertical list.
+ * Spatial placement of towns on one whole-machine plane: the camera pans across it, so a base lives
+ * at a coordinate instead of at a position in a vertical list.
  *
- * Derived on every render from the project order and never persisted (docs/spec.md "Persistence":
- * "the world rebuilds from the DB plus live sources; coordinates are not persisted").
+ * Same center-out grid as a town's own stations, one level up (lib/grid): cells come from the
+ * server's persisted `worldCell` when it has one, and from the same seeded placement it would have
+ * used when it does not. The pixel pitch is one district footprint plus a gutter.
  */
 
-/** Breathing room around the station grid. */
-const STAGE_MARGIN = 8;
+/** Cells per side of a normal town — what the plane paces itself by until a town outgrows it. */
+const TOWN_SIDE = 3;
 
-/** The station grid, measured from the stations themselves — CSS reads these back as variables. */
-export const STAGE_SIZE = {
-  width: Math.max(...STATIONS.map((s) => s.x + STATION_SIZE.width)) + STAGE_MARGIN,
-  height: Math.max(...STATIONS.map((s) => s.y + STATION_SIZE.height)) + STAGE_MARGIN,
-};
+/** The stage is the plate a normal district is laid out on; CSS reads these back as variables. */
+export const STAGE_SIZE = plateSize(TOWN_SIDE);
 
 /** Card padding plus the nameplate header row. */
 const DISTRICT_CHROME = { width: 24, height: 80 };
 
-/** Footprint of one district card: the stage plus its chrome. */
-export const DISTRICT_SIZE = {
-  width: STAGE_SIZE.width + DISTRICT_CHROME.width,
-  height: STAGE_SIZE.height + DISTRICT_CHROME.height,
+/** Footprint of one district card: its plate plus the chrome around it. */
+export const districtSize = (townSide: number): { width: number; height: number } => {
+  const plate = plateSize(townSide);
+  return { width: plate.width + DISTRICT_CHROME.width, height: plate.height + DISTRICT_CHROME.height };
 };
+
+export const DISTRICT_SIZE = districtSize(TOWN_SIDE);
 
 /** Empty plane between neighbouring districts — the travel you feel while dragging. */
 const GAP = 128;
-const CELL_W = DISTRICT_SIZE.width + GAP;
-const CELL_H = DISTRICT_SIZE.height + GAP;
+
+/** Every town shares one plane, so its seed is fixed; only the project id varies (mirrors core/town). */
+const WORLD_SEED = (projectId: string): number => hash(projectId);
 
 export type DistrictPlacement = { projectId: string; x: number; y: number };
 
-export type WorldPlane = { width: number; height: number; placements: DistrictPlacement[] };
+export type WorldPlane = {
+  width: number;
+  height: number;
+  /** Footprint every district is paced by — the largest town on the plane, so none overlap. */
+  size: { width: number; height: number };
+  placements: DistrictPlacement[];
+};
 
 /**
- * Staggered grid: rows alternate by half a cell so the world reads as a settlement rather than a
- * spreadsheet. Square-ish so panning stays two-dimensional however many projects exist.
+ * World-grid cell per town: persisted `worldCell` wins, the rest are seeded the way the server would
+ * seed them. When nothing is persisted yet the alphabetically first project anchors the center, the
+ * way HQ anchors a town (mirrors core/town `assignWorldCells`).
  */
-export const layoutDistricts = (projects: readonly Pick<ProjectView, "id">[]): WorldPlane => {
-  const cols = Math.max(1, Math.ceil(Math.sqrt(projects.length)));
-  const rows = Math.max(1, Math.ceil(projects.length / cols));
-  const placements = projects.map((project, index) => {
-    const row = Math.floor(index / cols);
-    return {
-      projectId: project.id,
-      x: GAP + (index % cols) * CELL_W + (row % 2 === 1 ? CELL_W / 2 : 0),
-      y: GAP + row * CELL_H,
-    };
-  });
+export const worldCells = (projects: readonly Pick<ProjectView, "id" | "worldCell">[]): Map<string, Cell> => {
+  const cells = new Map<string, Cell>();
+  for (const project of projects) {
+    if (project.worldCell) cells.set(project.id, { x: project.worldCell.x, y: project.worldCell.y });
+  }
+  const missing = projects.filter((project) => !cells.has(project.id)).map((project) => project.id);
+  const pinned = cells.size === 0 ? [...missing].sort((a, b) => a.localeCompare(b))[0] : undefined;
+  for (const [id, cell] of placeCells([...cells.values()], missing, WORLD_SEED, pinned)) cells.set(id, cell);
+  return cells;
+};
+
+/**
+ * Towns on the world grid, center-out. `townSide` is the widest town currently on the plane: every
+ * cell is paced by it, so a town that grew to 5×5 never overlaps its neighbours.
+ */
+export const layoutDistricts = (
+  projects: readonly Pick<ProjectView, "id" | "worldCell">[],
+  townSide: number = TOWN_SIDE,
+): WorldPlane => {
+  const size = districtSize(Math.max(TOWN_SIDE, townSide));
+  const pitch = { width: size.width + GAP, height: size.height + GAP };
+  const cells = worldCells(projects);
+  const placed = projects.map((project) => ({ projectId: project.id, cell: cells.get(project.id)! }));
+  if (placed.length === 0) return { width: GAP, height: GAP, size, placements: [] };
+  // Cells are signed and the plane is not: shift the whole grid so its top-left corner is the origin.
+  const xs = placed.map((p) => p.cell.x);
+  const ys = placed.map((p) => p.cell.y);
+  const minX = Math.min(...xs);
+  const minY = Math.min(...ys);
   return {
-    width: GAP + cols * CELL_W + (rows > 1 ? CELL_W / 2 : 0),
-    height: GAP + rows * CELL_H,
-    placements,
+    width: GAP + (Math.max(...xs) - minX + 1) * pitch.width,
+    height: GAP + (Math.max(...ys) - minY + 1) * pitch.height,
+    size,
+    placements: placed.map(({ projectId, cell }) => ({
+      projectId,
+      x: GAP + (cell.x - minX) * pitch.width,
+      y: GAP + (cell.y - minY) * pitch.height,
+    })),
   };
 };
 
-/** How recent an activity or delivery keeps a district on the plane. */
-export const RECENT_WINDOW_MS = 30 * 60_000;
+/** Cells per side of the widest town on the plane — what `layoutDistricts` paces every cell by. */
+export const widestTown = (sides: Iterable<number>): number => {
+  let widest = TOWN_SIDE;
+  for (const side of sides) widest = Math.max(widest, side);
+  return widest;
+};
 
 /**
  * Districts worth travelling to: something is alive there (an actor that has not ended, an open
@@ -72,12 +110,26 @@ export const nearProjectIds = (world: WorldState): ReadonlySet<string> => {
   const since = world.generatedAt - RECENT_WINDOW_MS;
   const near = new Set<string>();
   for (const actor of world.actors) if (actor.state !== "ended") near.add(actor.projectId);
-  for (const item of world.attention)
-    if (item.status === "open" || item.status === "acknowledged") near.add(item.projectId);
+  for (const item of world.attention) if (isOpenAttention(item)) near.add(item.projectId);
   for (const activity of world.activities)
     if ((activity.endedAt ?? activity.startedAt) >= since) near.add(activity.projectId);
   for (const receipt of world.recentReceipts) if (receipt.occurredAt >= since) near.add(receipt.projectId);
   return near;
+};
+
+/**
+ * Where the camera should start: the district that most wants the user right now — one waiting on
+ * them, else the one whose working crew moved last. Used once, on the first snapshot only; later
+ * patches never move the camera (docs/spec.md: "never auto-pan away from keyboard focus").
+ */
+export const mostRelevantProjectId = (world: WorldState, candidates: readonly string[]): string | undefined => {
+  const allowed = new Set(candidates);
+  const rank = (actor: WorldState["actors"][number]) =>
+    actor.state === "waiting_user" ? 0 : actor.state === "working" ? 1 : 2;
+  const best = world.actors
+    .filter((a) => allowed.has(a.projectId))
+    .sort((a, b) => rank(a) - rank(b) || b.updatedAt - a.updatedAt)[0];
+  return best?.projectId ?? candidates[0];
 };
 
 export type Camera = { x: number; y: number };
@@ -91,8 +143,8 @@ export const clampCamera = (x: number, y: number, plane: WorldPlane, viewW: numb
 /** Camera that puts one district in the middle of the viewport — "entering the base". */
 export const focusCamera = (placement: DistrictPlacement, plane: WorldPlane, viewW: number, viewH: number): Camera =>
   clampCamera(
-    placement.x + DISTRICT_SIZE.width / 2 - viewW / 2,
-    placement.y + DISTRICT_SIZE.height / 2 - viewH / 2,
+    placement.x + plane.size.width / 2 - viewW / 2,
+    placement.y + plane.size.height / 2 - viewH / 2,
     plane,
     viewW,
     viewH,
