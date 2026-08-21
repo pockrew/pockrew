@@ -80,6 +80,13 @@ export const deriveReceipts = (events: AgentEvent[]): WorkReceipt[] => {
   // Last unresolved failure per actor+turn+category, cleared once a pass recovers it (spec rule 6).
   const openFailures = new Map<string, { exitCode: number }>();
 
+  // Actors with any signal beyond a lone SubagentStop. Claude Code fires SubagentStop for internal
+  // background helpers too (fresh agent_id, no SubagentStart, no activity — fixture M0 + live);
+  // a "Subagent returned" receipt for those would stuff the warehouse on every message, reporting
+  // work the user never dispatched.
+  const witnessed = new Set<string>();
+  for (const e of sorted) if (e.kind !== "subagent_completed") witnessed.add(e.actorId);
+
   const receipts: WorkReceipt[] = [];
 
   for (const e of sorted) {
@@ -97,6 +104,7 @@ export const deriveReceipts = (events: AgentEvent[]): WorkReceipt[] => {
     }
 
     if (e.kind === "subagent_completed") {
+      if (!witnessed.has(e.actorId)) continue; // background helper, not dispatched work
       receipts.push({
         id: receiptId("subagent_returned", e.dedupeKey),
         ...baseFor(e),

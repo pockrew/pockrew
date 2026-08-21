@@ -5,6 +5,8 @@ import { Hono } from "hono";
 import { serveStatic } from "@hono/node-server/serve-static";
 
 import { fromHookPost } from "#adapters/claude/mapper.js";
+import type { UserIntent } from "#contracts/intents.js";
+import { overlayForIntent } from "#core/attention/attention.js";
 import { normalize } from "#core/normalize.js";
 import type { Store } from "#core/store/store.js";
 import { sourceCoverage } from "#server/coverage.js";
@@ -54,7 +56,9 @@ const storeFailure = (state: ServerState): string | undefined =>
     ? undefined
     : `${state.lastStoreError ?? "store write failed"} — ${REPAIR_GUIDANCE}`;
 
-export const createApp = (state: ServerState): Hono => {
+/** `notify` runs after every stored event so the daemon can ping the OS even with no client
+ *  connected (cli.ts passes the notifier; tests omit it and stay silent). */
+export const createApp = (state: ServerState, notify?: () => void): Hono => {
   const app = new Hono();
   const stream = createStreamHub({
     store: state.store,
@@ -93,7 +97,10 @@ export const createApp = (state: ServerState): Hono => {
       const inserted = state.store.insertEvent(event); // idempotent on dedupeKey
       state.storeFailedAt = undefined;
       state.lastStoreError = undefined;
-      if (inserted) stream.broadcast(); // a duplicate changes nothing, so it patches nothing
+      if (inserted) {
+        stream.broadcast(); // a duplicate changes nothing, so it patches nothing
+        notify?.(); // OS notification path — must fire even when no web client is connected
+      }
     } catch (err) {
       state.storeFailedAt = Date.now();
       state.lastStoreError = err instanceof Error ? err.message : String(err);
@@ -103,6 +110,53 @@ export const createApp = (state: ServerState): Hono => {
       return c.json({ error: "store unavailable" }, 503); // never silently drop the failure
     }
     return c.json({ ok: true });
+  });
+
+  app.post("/api/intents", async (c) => {
+    // Thin handler (rules/server.md): parse and validate here, lifecycle decision in
+    // core/attention (overlayForIntent), persistence in the store.
+    let body: unknown;
+    try {
+      body = await c.req.json();
+    } catch {
+      return c.json({ error: "malformed" }, 400);
+    }
+    const b = (typeof body === "object" && body !== null ? body : {}) as Record<string, unknown>;
+    const mapped =
+      typeof b["kind"] === "string"
+        ? overlayForIntent(
+            {
+              kind: b["kind"],
+              ...(typeof b["id"] === "string" ? { id: b["id"] } : {}),
+              ...(typeof b["until"] === "number" ? { until: b["until"] } : {}),
+            },
+            Date.now(),
+          )
+        : null;
+    // Non-attention intents (receipt_mark_reviewed, report_seen, pairing) land in M5/M6.
+    if (!mapped) return c.json({ error: "unsupported intent" }, 400);
+    // Audit the *validated* intent, never the raw body — an unbounded payload must not land in
+    // the store, and listIntentAudit's type must match what the row actually holds.
+    const intent: UserIntent =
+      mapped.overlay.status === "snoozed"
+        ? { kind: "attention_snooze", id: mapped.id, until: mapped.overlay.snoozedUntil! }
+        : {
+            kind: mapped.overlay.status === "resolved" ? "attention_resolve" : "attention_ack",
+            id: mapped.id,
+          };
+    try {
+      // Upsert = idempotent: clicking twice writes the same overlay, never a second effect.
+      state.store.setAttentionOverlay(mapped.id, mapped.overlay);
+      state.store.appendIntentAudit(intent, Date.now());
+      state.storeFailedAt = undefined;
+      state.lastStoreError = undefined;
+    } catch (err) {
+      state.storeFailedAt = Date.now();
+      state.lastStoreError = err instanceof Error ? err.message : String(err);
+      return c.json({ error: "store unavailable" }, 503);
+    }
+    stream.broadcast(); // connected clients see the item leave/park immediately
+    return c.json({ ok: true, id: mapped.id, status: mapped.overlay.status });
   });
 
   app.get("/api/health", (c) => {

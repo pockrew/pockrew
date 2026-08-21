@@ -1,20 +1,22 @@
+/*
+ * A standing game unit, not a card: status pill floating over the head, the character itself,
+ * and a translucent nameplate under the feet (same pill language as the station nameplates).
+ * The button is transparent — the plate art is the ground it stands on.
+ */
 .chip {
   position: absolute;
   left: 0;
   top: 0;
-  display: inline-flex;
+  width: 88px;
+  display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: var(--space-1);
-  padding: var(--space-1) var(--space-2);
-  background: var(--surface-raised);
+  gap: 2px;
+  padding: 0;
+  background: transparent;
+  border: none;
   color: var(--ink);
-  border: 1px solid var(--border);
-  border-left: 4px solid var(--chip-color, var(--border));
-  border-radius: var(--radius-sm);
   font: inherit;
-  font-size: 0.8rem;
-  white-space: nowrap;
-  text-align: left;
   cursor: pointer;
   transform: translate(var(--chip-x), var(--chip-y));
   transition: transform var(--dur-move) var(--ease-move);
@@ -78,7 +80,8 @@
 /*
  * Walking the road: while moving, position comes from the road path instead of the resting
  * translate, so the character follows the town's streets rather than cutting across the plate.
- * Longer routes get a bigger --travel-scale: more time overall, less time per pixel.
+ * Longer routes get a bigger --travel-scale: more time overall, less time per pixel. Paced by its
+ * own --dur-walk token — the 320ms camera beat read as a blink for a whole walk.
  *
  * Cascade contract: this block MUST stay below every [data-state] block. They share its specificity
  * and also set `animation`, so an earlier position would let `completed`/`ended` win the shorthand —
@@ -90,7 +93,7 @@
   offset-anchor: 0 0;
   offset-rotate: 0deg;
   transform: none;
-  animation: walk calc(var(--dur-move) * var(--travel-scale, 1)) var(--ease-move) forwards;
+  animation: walk calc(var(--dur-walk) * var(--travel-scale, 1)) var(--ease-move) forwards;
   z-index: 1;
 }
 
@@ -115,24 +118,104 @@
   }
 }
 
+/* Status over the head: icon + label + colour, never colour alone (rules/react.md). */
+.status {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px var(--space-2);
+  font-size: 0.62rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--surface-raised);
+  background: var(--chip-color, var(--ink-muted));
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+/* Alive states breathe; reduced motion keeps them still. */
+@media (prefers-reduced-motion: no-preference) {
+  .chip[data-state="working"] .status,
+  .chip[data-state="thinking"] .status {
+    animation: breathe 1.8s ease-in-out infinite;
+  }
+  .chip[data-state="waiting_user"] .status {
+    animation: hail 1.2s ease-in-out infinite;
+  }
+  .chip[data-state="blocked"] .status {
+    animation: judder 1.6s ease-in-out infinite;
+  }
+}
+
+@keyframes breathe {
+  50% {
+    opacity: 0.65;
+  }
+}
+
+@keyframes hail {
+  50% {
+    transform: translateY(-3px);
+  }
+}
+
+@keyframes judder {
+  20%,
+  60% {
+    transform: translateX(-1.5px);
+  }
+  40%,
+  80% {
+    transform: translateX(1.5px);
+  }
+}
+
 .avatar {
-  width: 24px;
-  height: 24px;
+  width: 34px;
+  height: 34px;
   flex-shrink: 0;
   display: block;
   object-fit: contain;
+  filter: drop-shadow(0 4px 6px rgb(0 0 0 / 20%));
 }
 
-/* Long agent names are clipped on the map; the full name lives in the inspector and the
-   accessible name on the button. */
-.name {
-  display: inline-block;
-  max-width: 16ch;
+/* Translucent two-tier nameplate under the feet — the same pill language as the station
+   nameplates. Persona on top, the live task line under it. Long text clips on the map; the full
+   name lives in the accessible name and the inspector. */
+.nameplate {
+  max-width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0 var(--space-1);
+  background: color-mix(in srgb, var(--surface) 72%, transparent);
+  border-bottom: 2px solid var(--chip-color, var(--border));
+  border-radius: var(--radius-sm);
+}
+
+.persona,
+.task {
+  max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  vertical-align: bottom;
-  font-weight: 600;
+}
+
+.persona {
+  font-size: 0.65rem;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.task {
+  font-size: 0.6rem;
+  color: var(--ink-muted);
+}
+
+/* Hover highlights the unit itself — a glow ring in its state colour, no layout shift. */
+.chip:hover .avatar {
+  filter: drop-shadow(0 0 6px var(--chip-color, var(--ink-muted))) drop-shadow(0 4px 6px rgb(0 0 0 / 20%));
 }
 
 /* Walk bob. Replaced by real walk frames once art-map walkFrames are filled in. */
@@ -146,31 +229,55 @@
   }
 }
 
-.stateLabel {
-  color: var(--chip-color, var(--ink-muted));
-  font-weight: 600;
-}
-
-.body {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1);
-}
-
-.subagent {
-  font-size: 0.72rem;
-}
-
 .subagent .avatar {
-  width: 20px;
-  height: 20px;
+  width: 26px;
+  height: 26px;
 }
 
-.parentLink {
-  color: var(--ink-muted);
+.subagent .persona {
+  font-size: 0.6rem;
 }
 
-/* Selected in the inspector: the chip keeps its state colour and gains a ring. */
-.chip[aria-pressed="true"] {
+.subagent .task {
+  font-size: 0.56rem;
+}
+
+/*
+ * Speech bubble: what the character is doing right now, floating over its head. Decorative echo of
+ * a real signal (the running tool call / needs-you state) — aria-hidden, the accessible name and
+ * the inspector carry the same facts. Raised above neighbouring chips so it reads in a crowd.
+ */
+.bubble {
+  position: absolute;
+  bottom: calc(100% + 4px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 2;
+  max-width: 26ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 2px var(--space-2);
+  font-size: 0.7rem;
+  color: var(--ink);
+  background: var(--surface-raised);
+  border: 1px solid var(--chip-color, var(--border));
+  border-radius: var(--radius-md);
+  pointer-events: none;
+}
+
+/* Bubble tail. */
+.bubble::after {
+  content: "";
+  position: absolute;
+  top: 100%;
+  left: calc(50% - 5px);
+  border: 5px solid transparent;
+  border-top-color: var(--chip-color, var(--border));
+}
+
+/* Selected in the inspector: the unit keeps its state colour and gains a ring around the body. */
+.chip[aria-pressed="true"] .avatar {
+  border-radius: 50%;
   box-shadow: 0 0 0 2px var(--chip-color, var(--border));
 }

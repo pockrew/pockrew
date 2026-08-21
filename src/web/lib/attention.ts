@@ -6,3 +6,6 @@ import type { AttentionItem } from "#contracts/attention.js";
  */
 export const isOpenAttention = (item: Pick<AttentionItem, "status">): boolean =>
   item.status === "open" || item.status === "acknowledged";
+
+/** "Remind later" parks an item for ten minutes — the same beat the OS notification repeat uses. */
+export const SNOOZE_MS = 600_000;

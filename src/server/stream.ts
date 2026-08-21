@@ -151,7 +151,7 @@ export const createStreamHub = (deps: StreamDeps): StreamHub => {
   const currentWorld = (): WorldState => {
     const now = Date.now();
     const events = deps.store.listEvents();
-    const world = assembleWorld(events, now, deps.coverage(events));
+    const world = assembleWorld(events, now, deps.coverage(events), deps.store.getAttentionOverlays());
     return attachLayout(world, deps.store, now);
   };
 

@@ -7,9 +7,11 @@ import { fileURLToPath } from "node:url";
 import { serve } from "@hono/node-server";
 
 import { claudeSettingsPath, install, MARKER, planInstall, uninstall } from "#adapters/claude/install.js";
+import { deriveAttention } from "#core/attention/attention.js";
 import { openStore } from "#core/store/store.js";
 import { checkDaemonCoverage, HEARTBEAT_KEY } from "#server/coverage.js";
 import { createApp, webBuilt, type ServerState } from "#server/http.js";
+import { createNotifier } from "#server/notify.js";
 import { acquireRegistry, readRegistry, registryPath, releaseRegistry } from "#server/registry.js";
 
 /** Default `~/.pockrew/company.sqlite`, override via POCKREW_DB_PATH (e.g. for tests). */
@@ -41,7 +43,24 @@ const cmdStart = async (): Promise<void> => {
   const heartbeat = setInterval(() => store.setAppState(HEARTBEAT_KEY, String(Date.now())), 30_000);
   heartbeat.unref(); // never keeps the process alive on its own
   const state: ServerState = { token: reg.token, port: reg.port, store, startedAt: Date.now() };
-  const app = createApp(state);
+  // OS notifications: checked on every ingested event (createApp) and every 60s so the 10-minute
+  // repeat for a still-open high item fires even when no event and no client arrives. Kill switch:
+  // POCKREW_NOTIFY=0 (default on). The derive reads a bounded window, not the whole table — this
+  // runs per ingested event, and anything worth pinging the OS about is recent by definition (the
+  // dedupe/stall windows are 5–10 minutes); a day covers a prompt left open over a long lunch.
+  const NOTIFY_WINDOW_MS = 86_400_000;
+  const notifier = createNotifier({
+    items: () =>
+      deriveAttention(
+        store.listEvents({ sinceOccurredAt: Date.now() - NOTIFY_WINDOW_MS }),
+        Date.now(),
+        store.getAttentionOverlays(),
+      ),
+  });
+  const notifyEnabled = process.env["POCKREW_NOTIFY"] !== "0";
+  const notifyTimer = notifyEnabled ? setInterval(() => notifier.check(), 60_000) : undefined;
+  notifyTimer?.unref(); // never keeps the process alive on its own
+  const app = createApp(state, notifyEnabled ? () => notifier.check() : undefined);
   const server = serve({ fetch: app.fetch, port: reg.port, hostname: "127.0.0.1" });
   console.log(`pockrew listening on 127.0.0.1:${reg.port} (registry: ${registryPath()})`);
   // The token travels in the URL fragment: browsers never send it to the server, so it stays
@@ -53,6 +72,7 @@ const cmdStart = async (): Promise<void> => {
     if (stopping) return; // a second SIGINT/SIGTERM during the drain must not re-run this
     stopping = true;
     clearInterval(heartbeat);
+    if (notifyTimer) clearInterval(notifyTimer);
     store.setAppState(HEARTBEAT_KEY, String(Date.now())); // clean-shutdown heartbeat: no false gap next start
     server.close(() => {
       store.close();

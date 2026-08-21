@@ -1,8 +1,10 @@
 import { DatabaseSync } from "node:sqlite";
 
 import type { AgentEvent } from "#contracts/events.js";
+import type { UserIntent } from "#contracts/intents.js";
 import type { WorkReceipt } from "#contracts/receipts.js";
 import type { Station, StationCell } from "#contracts/world.js";
+import type { AttentionOverlay } from "#core/attention/attention.js";
 import type { WorldCell } from "#core/town.js";
 
 export const openStore = (dbPath: string) => {
@@ -76,6 +78,29 @@ export const openStore = (dbPath: string) => {
       throw error;
     }
   }
+  if (version < 3) {
+    db.exec("BEGIN");
+    try {
+      // M4: user lifecycle overlay per attention item (ack/snooze/resolve survive restarts) plus
+      // the local audit trail every accepted intent leaves behind (spec "Approval safety").
+      // Additive ALTERs only on the v1 attention stub — no backup step needed yet.
+      db.exec(`
+        ALTER TABLE attention ADD COLUMN status TEXT;
+        ALTER TABLE attention ADD COLUMN snoozed_until INTEGER;
+        ALTER TABLE attention ADD COLUMN updated_at INTEGER;
+        CREATE TABLE intent_audit (
+          received_at INTEGER NOT NULL,
+          json TEXT NOT NULL
+        );
+        PRAGMA user_version = 3;
+      `);
+      db.exec("COMMIT");
+    } catch (error) {
+      db.exec("ROLLBACK");
+      db.close();
+      throw error;
+    }
+  }
 
   const insertEventStatement = db.prepare(`
     INSERT OR IGNORE INTO events
@@ -106,6 +131,16 @@ export const openStore = (dbPath: string) => {
     VALUES (?, ?, ?, ?)
   `);
   const getWorldLayoutStatement = db.prepare("SELECT project_id, cell_x, cell_y FROM world_layout ORDER BY project_id");
+  const getAttentionOverlaysStatement = db.prepare(
+    "SELECT id, status, snoozed_until, updated_at FROM attention WHERE status IS NOT NULL",
+  );
+  const setAttentionOverlayStatement = db.prepare(`
+    INSERT INTO attention (id, status, snoozed_until, updated_at) VALUES (?, ?, ?, ?)
+    ON CONFLICT (id) DO UPDATE SET
+      status = excluded.status, snoozed_until = excluded.snoozed_until, updated_at = excluded.updated_at
+  `);
+  const appendIntentAuditStatement = db.prepare("INSERT INTO intent_audit (received_at, json) VALUES (?, ?)");
+  const listIntentAuditStatement = db.prepare("SELECT received_at, json FROM intent_audit ORDER BY rowid ASC");
 
   return {
     insertEvent: (event: AgentEvent): boolean =>
@@ -139,6 +174,37 @@ export const openStore = (dbPath: string) => {
         ? listReceiptsStatement.all()
         : listReceiptsSinceStatement.all(opts.sinceOccurredAt)
       ).map((row) => JSON.parse(row.json as string) as WorkReceipt),
+    /** One row per attention item the user acted on — the lifecycle overlay M4's engine applies. */
+    getAttentionOverlays: (): Map<string, AttentionOverlay> =>
+      new Map(
+        (
+          getAttentionOverlaysStatement.all() as Array<{
+            id: string;
+            status: string;
+            snoozed_until: number | null;
+            updated_at: number | null;
+          }>
+        ).map((row) => [
+          row.id,
+          {
+            status: row.status as AttentionOverlay["status"],
+            updatedAt: row.updated_at ?? 0,
+            ...(row.snoozed_until === null ? {} : { snoozedUntil: row.snoozed_until }),
+          },
+        ]),
+      ),
+    setAttentionOverlay: (id: string, overlay: AttentionOverlay): void => {
+      setAttentionOverlayStatement.run(id, overlay.status, overlay.snoozedUntil ?? null, overlay.updatedAt);
+    },
+    /** Local audit trail: every accepted intent is recorded verbatim (spec "Approval safety"). */
+    appendIntentAudit: (intent: UserIntent, receivedAt: number): void => {
+      appendIntentAuditStatement.run(receivedAt, JSON.stringify(intent));
+    },
+    listIntentAudit: (): Array<{ receivedAt: number; intent: UserIntent }> =>
+      (listIntentAuditStatement.all() as Array<{ received_at: number; json: string }>).map((row) => ({
+        receivedAt: row.received_at,
+        intent: JSON.parse(row.json) as UserIntent,
+      })),
     getAppState: (key: string): string | undefined => getAppStateStatement.get(key)?.value as string | undefined,
     setAppState: (key: string, value: string): void => {
       setAppStateStatement.run(key, value);

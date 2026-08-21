@@ -103,6 +103,14 @@ const taskActivity = (p: ClaudePayload): Activity => ({
   ...opt("operation", truncateSummary(descriptionFor(p))),
 });
 
+/** The full task prompt the Task/Agent call carries (`tool_input.prompt`) — the subagent's real
+ *  mission text, sanitized and truncated like every summary. Rides in the event's own `summary`
+ *  slot; world.ts maps it onto the subagent as `taskSummary` when the pairing is unambiguous. */
+const taskPromptFor = (p: ClaudePayload): string | undefined => {
+  const prompt = (p.tool_input ?? {})["prompt"];
+  return typeof prompt === "string" ? truncateSummary(prompt) : undefined;
+};
+
 const fileFor = (p: ClaudePayload): AgentEvent["file"] | undefined => {
   const input = p.tool_input ?? {};
   const filePath = typeof input["file_path"] === "string" ? input["file_path"] : undefined;
@@ -199,6 +207,7 @@ const normalizeClaudeHook = (raw: RawSourceEvent): AgentEvent | null => {
         kind: "activity_started",
         activity: isSubagentTool(p.tool_name) ? taskActivity(p) : activityFor(p.tool_name),
         ...opt("file", fileFor(p)),
+        ...opt("summary", isSubagentTool(p.tool_name) ? taskPromptFor(p) : undefined),
       };
     case "PostToolUse": {
       const approvedBy = approvedByFor(p.permission_mode);

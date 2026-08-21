@@ -63,3 +63,41 @@
   margin: var(--space-1) 0 0;
   font-size: 0.85rem;
 }
+
+/* An acknowledged item stays visible but steps back — the user already saw it. */
+.item[data-status="acknowledged"] {
+  opacity: 0.65;
+}
+
+/* Where the real answer happens (approval/question): the terminal, not this card. */
+.hint {
+  margin: var(--space-1) 0 0;
+  font-size: 0.72rem;
+  font-style: italic;
+  color: var(--ink-muted);
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  margin-top: var(--space-2);
+}
+
+.action {
+  /* Interactive targets ≥ 40×40 CSS px (rules/react.md). */
+  min-height: 40px;
+  min-width: 40px;
+  padding: 0 var(--space-2);
+  font: inherit;
+  font-size: 0.8rem;
+  color: var(--ink);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+
+.action:hover {
+  border-color: var(--item-color, var(--ink-muted));
+}

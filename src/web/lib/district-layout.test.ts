@@ -6,6 +6,7 @@ import {
   activeStations,
   builtStations,
   CELL_SIZE,
+  CHIP_FOOT,
   layoutDistrict,
   plateSize,
   restingBreakdown,
@@ -46,7 +47,7 @@ const activity = (over: Partial<ActivityView> = {}): ActivityView => ({
 });
 
 const layout = (over: Partial<Parameters<typeof layoutDistrict>[0]> = {}) =>
-  layoutDistrict({ project: { id: "p1" }, actors: [], activities: [], now: NOW, expanded: false, ...over });
+  layoutDistrict({ project: { id: "p1" }, actors: [], activities: [], now: NOW, ...over });
 
 const cell = (station: StationCell["station"], x: number, y: number): StationCell => ({ station, x, y });
 
@@ -82,7 +83,7 @@ test("a station that has ever been built is permanent, however quiet it goes", (
   const persisted = { id: "p1", stationCells: [cell("workshop", 1, 0), cell("lab", 0, 1)] };
   // Nobody working anywhere, nothing in the window: the buildings still stand.
   expect(builtStations(persisted, [], [], NOW)).toEqual(["hq", "workshop", "lab"]);
-  const quiet = layoutDistrict({ project: persisted, actors: [], activities: [], now: NOW, expanded: false });
+  const quiet = layoutDistrict({ project: persisted, actors: [], activities: [], now: NOW });
   expect(quiet.stations.map((s) => s.station)).toEqual(["hq", "workshop", "lab"]);
   // An aged-out signal cannot demolish a persisted station either.
   const stale = [activity({ category: "code", startedAt: NOW - RECENT_WINDOW_MS - 1 })];
@@ -143,7 +144,6 @@ test("the plate grows around persisted cells instead of moving them", () => {
     actors: [],
     activities: [],
     now: NOW,
-    expanded: false,
   });
   expect(far.side).toBe(5);
   expect(far.plate).toEqual(plateSize(5));
@@ -241,63 +241,109 @@ test("the drawn roads follow exactly the cells the network reports", () => {
   expect(drawn).toEqual(centers);
 });
 
-test("a walk follows the cell path to the anchor and ends exactly on the chip's spot", () => {
+test("a walk follows the drawn streets end to end: old station → anchor → new station → the chip's spot", () => {
   const built = layout({ actors: [actor("a", { station: "library" }), actor("b", { station: "lab" })] });
   const target = { x: 300, y: 200 };
-  const trip = built.travelPath("library", target)!;
+  const trip = built.travelPath("library", "lab", target)!;
   expect(trip.d.endsWith("L 300 200")).toBe(true);
-  // library -> hq -> target: one continuous path, so exactly one move-to.
+  // library -> hq -> lab -> target: one continuous path, so exactly one move-to.
   expect(trip.d.match(/M /g)).toHaveLength(1);
-  expect(built.travelPath("hq", target)!.d.match(/M /g)).toHaveLength(1);
+  expect(built.travelPath("hq", "lab", target)!.d.match(/M /g)).toHaveLength(1);
 
-  // Every point before the last is a road cell center: the character walks the street, not the plate.
+  // Every point before the last is a road cell center (shifted by the unit's foot anchor): the
+  // character walks the DRAWN street, not the plate — no straight flight and no flipped-L
+  // shortcut through cells that have no road.
   const points = trip.d.match(/-?[\d.]+ -?[\d.]+/g)!;
+  const onRoad = (x: number, y: number) => `${x - CHIP_FOOT.x} ${y - CHIP_FOOT.y}`;
   const roadCenters = new Set(
-    built.roadCells.map(
-      (c) =>
-        `${(c.x + (built.side - 1) / 2) * CELL_SIZE.width + CELL_SIZE.width / 2} ${
-          (c.y + (built.side - 1) / 2) * CELL_SIZE.height + CELL_SIZE.height / 2
-        }`,
+    built.roadCells.map((c) =>
+      onRoad(
+        (c.x + (built.side - 1) / 2) * CELL_SIZE.width + CELL_SIZE.width / 2,
+        (c.y + (built.side - 1) / 2) * CELL_SIZE.height + CELL_SIZE.height / 2,
+      ),
     ),
   );
   for (const point of points.slice(0, -1)) expect(roadCenters.has(point)).toBe(true);
-  // It starts on the library's own cell and reaches the anchor cell before the final hop.
+  // It starts on the library's own cell, passes the anchor, and reaches the lab cell before the
+  // final hop to the spot.
   const library = built.stations.find((s) => s.station === "library")!;
   const hq = built.stations.find((s) => s.station === "hq")!;
-  expect(points[0]).toBe(`${library.center.x} ${library.center.y}`);
-  expect(points.at(-2)).toBe(`${hq.center.x} ${hq.center.y}`);
+  const lab = built.stations.find((s) => s.station === "lab")!;
+  expect(points[0]).toBe(onRoad(library.center.x, library.center.y));
+  expect(points).toContain(onRoad(hq.center.x, hq.center.y));
+  expect(points.at(-2)).toBe(onRoad(lab.center.x, lab.center.y));
 
   // A station this town never built has no route; the chip falls back to a plain move.
-  expect(built.travelPath("review", target)).toBeNull();
+  expect(built.travelPath("review", "lab", target)).toBeNull();
 });
 
-test("longer walks take more time but less time per pixel", () => {
-  expect(travelFactor(0)).toBe(1);
-  expect(travelFactor(220)).toBe(1);
-  expect(travelFactor(440)).toBe(2);
-  expect(travelFactor(99_999)).toBe(3);
+test("walk pacing is per road cell hopped, capped for cross-town treks", () => {
+  expect(travelFactor(1)).toBe(1); // standing start: never zero-duration
+  expect(travelFactor(3)).toBe(2);
+  expect(travelFactor(99)).toBe(6);
 });
 
-test("two or more resting actors fold into one cluster", () => {
-  const folded = layout({ actors: [actor("a"), actor("b", { state: "ended" }), actor("c")] });
+test("unfolded ended units stand at the memorial hall, apart from the idle crew at the lounge", () => {
+  const built = layout({
+    actors: [actor("a"), actor("b", { state: "ended" }), actor("c"), actor("d", { state: "ended" })],
+  });
+  // Four resting actors, under the fold: everyone stays an individual unit…
+  expect(built.clusters).toEqual([]);
+  expect(built.chips).toHaveLength(4);
+  // …but the ended pair stands at the memorial spot (plate's foot), not back at the lounge.
+  const endedChips = built.chips.filter((c) => c.actor.state === "ended");
+  const idleChips = built.chips.filter((c) => c.actor.state === "idle");
+  for (const chip of endedChips) {
+    expect(chip.y).toBeGreaterThan(built.plate.height - 180);
+    for (const idle of idleChips) expect(`${chip.x},${chip.y}`).not.toBe(`${idle.x},${idle.y}`);
+  }
+});
+
+test("idle and ended fold into separate benches from five: lounge and memorial hall", () => {
+  const folded = layout({
+    actors: [
+      ...Array.from({ length: 5 }, (_, i) => actor(`i${i}`)),
+      ...Array.from({ length: 5 }, (_, i) => actor(`e${i}`, { state: "ended" })),
+    ],
+  });
   expect(folded.chips).toEqual([]);
-  expect(folded.cluster?.folded).toBe(true);
-  expect(folded.cluster?.actors.map((a) => a.id)).toEqual(["a", "b", "c"]);
+  const idle = folded.clusters.find((c) => c.key === "idle")!;
+  const ended = folded.clusters.find((c) => c.key === "ended")!;
+  expect(idle.actors).toHaveLength(5);
+  expect(idle.label).toBe("lounge");
+  expect(ended.actors).toHaveLength(5);
+  expect(ended.label).toBe("memorial hall");
+  expect(`${idle.x},${idle.y}`).not.toBe(`${ended.x},${ended.y}`);
 });
 
 test("a single resting actor is not worth folding", () => {
   const solo = layout({ actors: [actor("solo")] });
-  expect(solo.cluster).toBeNull();
+  expect(solo.clusters).toEqual([]);
   expect(solo.chips.map((c) => c.actor.id)).toEqual(["solo"]);
 });
 
-test("expanding keeps the cluster control but places every actor", () => {
-  const shown = layout({ actors: [actor("a"), actor("b"), actor("c")], expanded: true });
-  expect(shown.chips.map((c) => c.actor.id)).toEqual(["a", "b", "c"]);
-  expect(shown.cluster?.folded).toBe(false);
+test("up to four active actors hold a building's corners; a fifth folds the crew", () => {
+  const crewOf = (n: number) =>
+    layout({ actors: Array.from({ length: n }, (_, i) => actor(`a${i}`, { state: "working", station: "workshop" })) });
+
+  const four = crewOf(4);
+  expect(four.clusters).toEqual([]);
+  expect(four.chips).toHaveLength(4);
+  // 2×2 formation: two share the front row (same y, different x), two stand on the second row —
+  // never four stacked floors.
+  const ys = new Set(four.chips.map((c) => c.y));
+  const xs = new Set(four.chips.map((c) => c.x));
+  expect(ys.size).toBe(2);
+  expect(xs.size).toBe(2);
+
+  const five = crewOf(5);
+  expect(five.chips).toEqual([]);
+  const crew = five.clusters.find((c) => c.key === "station:workshop")!;
+  expect(crew.kind).toBe("active");
+  expect(crew.actors).toHaveLength(5);
 });
 
-test("active and needs-you actors are never folded, nor is an idle actor holding attention", () => {
+test("under the fold everyone is an individual chip, whatever their state", () => {
   const built = layout({
     actors: [
       actor("worker", { state: "working", station: "workshop" }),
@@ -307,29 +353,30 @@ test("active and needs-you actors are never folded, nor is an idle actor holding
       actor("resting-2"),
     ],
   });
-  expect(built.chips.map((c) => c.actor.id)).toEqual(["worker", "asker", "flagged"]);
-  expect(built.cluster?.actors.map((a) => a.id)).toEqual(["resting-1", "resting-2"]);
+  expect(built.clusters).toEqual([]);
+  expect(built.chips.map((c) => c.actor.id)).toEqual(["worker", "asker", "flagged", "resting-1", "resting-2"]);
 });
 
-test("the resting crowd waits at the anchor when the town has no lounge", () => {
+test("the folded idle crowd waits at the anchor when the town has no lounge", () => {
   const built = layout({
-    actors: [actor("a", { state: "ended", station: "workshop" }), actor("b", { state: "ended", station: "workshop" })],
+    actors: Array.from({ length: 5 }, (_, i) => actor(`a${i}`, { state: "idle", station: "workshop" })),
   });
   expect(built.stations.map((s) => s.station)).toEqual(["hq", "workshop"]);
   const hq = built.stations.find((s) => s.station === "hq")!;
-  expect(built.cluster!.x).toBeGreaterThanOrEqual(hq.x);
-  expect(built.cluster!.y).toBeGreaterThanOrEqual(hq.y);
+  const idle = built.clusters.find((c) => c.key === "idle")!;
+  expect(idle.x).toBeGreaterThanOrEqual(hq.x);
+  expect(idle.y).toBeGreaterThanOrEqual(hq.y);
 });
 
-test("chips sharing a station never land on the same spot, cluster included", () => {
+test("chips sharing a station never land on the same spot, clusters included", () => {
   const built = layout({
     actors: [
-      ...Array.from({ length: 5 }, (_, i) => actor(`flagged-${i}`, { station: "hq", attentionIds: [`a${i}`] })),
+      ...Array.from({ length: 2 }, (_, i) => actor(`flagged-${i}`, { station: "hq", attentionIds: [`a${i}`] })),
       actor("resting-1"),
       actor("resting-2"),
     ],
   });
-  const spots = [...built.chips.map((c) => `${c.x},${c.y}`), `${built.cluster!.x},${built.cluster!.y}`];
+  const spots = [...built.chips.map((c) => `${c.x},${c.y}`), ...built.clusters.map((c) => `${c.x},${c.y}`)];
   expect(new Set(spots).size).toBe(spots.length);
 });
 

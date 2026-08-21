@@ -3,10 +3,12 @@ import { useEffect, useRef, type FC } from "react";
 import { Cancel01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 
+import type { UserIntent } from "#contracts/intents.js";
 import type { ActivityView, ActorView, AttentionView, ReceiptView } from "#contracts/world.js";
 
 import { AttentionItemCard } from "@/components/molecules/attention-item";
 import { ReceiptDelivery } from "@/components/molecules/receipt-delivery";
+import { SNOOZE_MS } from "@/lib/attention";
 import { useEscapeClose } from "@/lib/use-escape-close";
 import { CONFIDENCE_META, STATE_META, STATION_LABEL } from "@/lib/world-meta";
 
@@ -21,6 +23,8 @@ type Props = {
   projectName: string;
   now: number;
   onClose: () => void;
+  /** Attention actions from inside the inspector; no Focus here — the actor is already in focus. */
+  onIntent?: (intent: UserIntent) => void;
 };
 
 /**
@@ -36,7 +40,11 @@ export const ActorInspector: FC<Props> = ({
   projectName,
   now,
   onClose,
+  onIntent,
 }) => {
+  const handleAck = (id: string) => onIntent?.({ kind: "attention_ack", id });
+  const handleSnooze = (id: string) => onIntent?.({ kind: "attention_snooze", id, until: Date.now() + SNOOZE_MS });
+  const handleResolve = (id: string) => onIntent?.({ kind: "attention_resolve", id });
   const closeRef = useRef<HTMLButtonElement>(null);
   // Mounted only while open, so it is always the top-most overlay Escape should close.
   useEscapeClose(true, onClose);
@@ -78,6 +86,13 @@ export const ActorInspector: FC<Props> = ({
             <dd>{parent.displayName}</dd>
           </>
         ) : null}
+        {actor.taskSummary ? (
+          <>
+            <dt>Task</dt>
+            {/* The real prompt this subagent was spawned with (≤160 chars, sanitized upstream). */}
+            <dd>{actor.taskSummary}</dd>
+          </>
+        ) : null}
         <dt>Activity</dt>
         <dd>
           {activity
@@ -94,7 +109,14 @@ export const ActorInspector: FC<Props> = ({
       ) : (
         <ol className={styles.list}>
           {attention.map((item) => (
-            <AttentionItemCard key={item.id} item={item} actorNames={actorNames} />
+            <AttentionItemCard
+              key={item.id}
+              item={item}
+              actorNames={actorNames}
+              onAck={handleAck}
+              onSnooze={handleSnooze}
+              onResolve={handleResolve}
+            />
           ))}
         </ol>
       )}

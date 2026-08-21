@@ -2,12 +2,13 @@ import { useEffect, useRef, useState, type CSSProperties, type FC, type MouseEve
 
 import { HugeiconsIcon } from "@hugeicons/react";
 
-import type { ActorView, Station } from "#contracts/world.js";
+import type { ActivityView, ActorView, Station } from "#contracts/world.js";
 
 // ?no-inline: a <use href> fragment cannot resolve into a data: URI, so the
 // sprite sheet must always be emitted as a real file (dev never inlines; build does).
 import spritesUrl from "@/assets/sprites.svg?no-inline";
 import type { ChipPlacement, Travel } from "@/lib/district-layout";
+import { personaFor } from "@/lib/persona";
 import { entryTrip, nextTravel, settleTravel } from "@/lib/travel-state";
 import { ACTOR_ART_BY_SOURCE } from "@/lib/world-art";
 import { ACTOR_SPRITE_BY_SOURCE, STATE_META, STATION_LABEL } from "@/lib/world-meta";
@@ -22,18 +23,36 @@ const WALK_BACKSTOP_MS = 1_200;
 
 type Props = ChipPlacement & {
   parent?: ActorView;
+  /** The actor's current activity, for the speech bubble. Only a running one says anything. */
+  activity?: ActivityView;
   selected: boolean;
   /** True only for a character that really turned up while watching (lib/travel-state `isArrival`). */
   spawned: boolean;
   /** Walk route from the actor's previous station to this chip's spot, or null when there is none. */
-  routeFrom: (from: Station, to: { x: number; y: number }) => Travel | null;
+  routeFrom: (from: Station, to: Station, spot: { x: number; y: number }) => Travel | null;
   onSelect: () => void;
+};
+
+/**
+ * What the character "says" while you watch it: the real signal only — a running tool call, or the
+ * state that needs the user. No signal means no bubble, never invented chatter (AGENTS.md rule 7).
+ * aria-hidden: the same facts already live in the button's accessible name and the inspector.
+ */
+const bubbleText = (actor: ActorView, activity: ActivityView | undefined): string | undefined => {
+  if (actor.state === "waiting_user") return "needs you";
+  if (actor.state === "blocked") return activity?.operation ?? "blocked";
+  if ((actor.state === "working" || actor.state === "thinking") && activity?.status === "running") {
+    const what = activity.tool ?? activity.category;
+    return activity.operation ? `${what}: ${activity.operation}` : what;
+  }
+  return undefined;
 };
 
 /** A character on the stage. Clicking it inspects the actor, the way a base unit is tapped. */
 export const ActorChip: FC<Props> = ({
   actor,
   parent,
+  activity,
   x,
   y,
   spawnDx,
@@ -46,8 +65,8 @@ export const ActorChip: FC<Props> = ({
   // District rebuilds its layout every render, so `routeFrom` is a fresh closure each time and the
   // resting spot can shift under the chip. Both live in one ref, re-pointed on every render, so the
   // route effect depends on the station alone — a new closure must never restart a walk.
-  const routeToSpot = useRef<(from: Station) => Travel | null>((from) => routeFrom(from, { x, y }));
-  routeToSpot.current = (from) => routeFrom(from, { x, y });
+  const routeToSpot = useRef<(from: Station) => Travel | null>((from) => routeFrom(from, actor.station, { x, y }));
+  routeToSpot.current = (from) => routeFrom(from, actor.station, { x, y });
   // A character that really just arrived enters through the anchor: it mounts on the HQ cell already
   // walking the road out to its station. Anyone else — a remount after a reload, a chip the idle fold
   // just revealed — simply stands where it already is. Reduced motion makes the walk a teleport.
@@ -58,6 +77,7 @@ export const ActorChip: FC<Props> = ({
   walked.current = walked.current || trip.travel !== null;
   const travel: Travel | null = trip.travel;
   const meta = STATE_META[actor.state];
+  const speech = bubbleText(actor, activity);
   const art = ACTOR_ART_BY_SOURCE[actor.source];
   const spriteId = ACTOR_SPRITE_BY_SOURCE[actor.source];
   const station = STATION_LABEL[actor.station];
@@ -98,11 +118,22 @@ export const ActorChip: FC<Props> = ({
       data-entering={spawned && !walked.current ? "true" : undefined}
       style={position}
       aria-pressed={selected}
-      aria-label={`${actor.displayName}, ${actor.source}, ${meta.label}, at ${station}${
+      aria-label={`${personaFor(actor.id, actor.parentActorId !== undefined)} — ${actor.displayName}, ${actor.source}, ${meta.label}, at ${station}${
         parent ? `, helping ${parent.displayName}` : ""
       } — open inspector`}
       onClick={handleClick}
     >
+      {speech ? (
+        <span className={styles.bubble} aria-hidden="true">
+          {speech}
+        </span>
+      ) : null}
+      {/* Game unit, top to bottom: status pill over the head (icon + label + colour, per
+          rules/react.md — never colour alone), the character, its name under the feet. Parent
+          lives in the accessible name and the inspector, not on the plate. */}
+      <span className={styles.status} aria-hidden="true">
+        <HugeiconsIcon icon={meta.icon} size={12} aria-hidden="true" /> {meta.label}
+      </span>
       {/* Character art when the source has a PNG; the SVG sprite stands in until it does. */}
       {art.idle ? (
         <img className={styles.avatar} src={art.idle} alt="" aria-hidden="true" />
@@ -111,11 +142,11 @@ export const ActorChip: FC<Props> = ({
           <use href={`${spritesUrl}#${spriteId}`} />
         </svg>
       )}
-      <HugeiconsIcon icon={meta.icon} size={14} aria-hidden="true" />
-      <span aria-hidden="true" className={styles.body}>
-        <span className={styles.name}>{actor.displayName}</span>
-        <span className={styles.stateLabel}>{meta.label}</span>
-        {parent ? <span className={styles.parentLink}>↳ {parent.displayName}</span> : null}
+      {/* Two-tier nameplate: a stable persona on top (cosmetic skin, seeded by id), the real
+          signal below — the latest prompt / task description `displayName` carries. */}
+      <span aria-hidden="true" className={styles.nameplate}>
+        <span className={styles.persona}>{personaFor(actor.id, actor.parentActorId !== undefined)}</span>
+        <span className={styles.task}>{actor.displayName}</span>
       </span>
     </button>
   );
